@@ -169,6 +169,11 @@ void AShooterCharacter::Elim()
 
 void AShooterCharacter::MulticastElim_Implementation()
 {
+	if (ShooterPlayerController)
+	{
+		ShooterPlayerController->SetHUDWeaponAmmo(0);
+	}
+
 	bElimmed = true; //Variable que se utiliza para que no se ejecuten dos animaciones (ser golpeado y morir)
 
 	GetMesh()->SetCollisionObjectType(ECC_Pawn);

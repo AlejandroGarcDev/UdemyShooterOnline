@@ -72,7 +72,7 @@ void AShooterPlayerController::SetHUDDefeats(int32 Defeats)
 {
 	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
 
-	//Comprobamos que existe ScoreAmount
+	//Comprobamos que existe DefeatsAmount
 	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
 		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
 		ShooterHUD->CharacterOverlay->DefeatsAmount)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
@@ -80,6 +80,21 @@ void AShooterPlayerController::SetHUDDefeats(int32 Defeats)
 		FString DefeatsText = FString::Printf(TEXT("%d"), Defeats);
 		ShooterHUD->CharacterOverlay->DefeatsAmount->SetText(FText::FromString(DefeatsText));
 	}
+}
+
+void AShooterPlayerController::SetHUDWeaponAmmo(int32 WeaponAmmo)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	//Comprobamos que existe AmmoAmount
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->WeaponAmmoAmount)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+	{
+		FString WeaponAmmoText = FString::Printf(TEXT("%d"), WeaponAmmo);
+		ShooterHUD->CharacterOverlay->WeaponAmmoAmount->SetText(FText::FromString(WeaponAmmoText));
+	}
+
 }
 
 

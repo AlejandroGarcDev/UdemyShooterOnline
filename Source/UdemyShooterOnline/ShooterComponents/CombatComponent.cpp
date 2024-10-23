@@ -421,6 +421,12 @@ void UCombatComponent::DeathFire()
 void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 {
 	if (Character == nullptr || WeaponToEquip == nullptr) return;
+	
+	//Si ya tenemos un arma la tiramos
+	if (EquippedWeapon)
+	{
+		EquippedWeapon->Dropped();
+	}
 
 	EquippedWeapon = WeaponToEquip;
 	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
@@ -431,6 +437,7 @@ void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());
 	}
 	EquippedWeapon->SetOwner(Character);
+	EquippedWeapon->SetHUDAmmo();
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 	Character->bUseControllerRotationYaw = true;
 }

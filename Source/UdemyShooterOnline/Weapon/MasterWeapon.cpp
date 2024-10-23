@@ -10,6 +10,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Casing.h"
 #include "Engine/SkeletalMeshSocket.h"
+#include "UdemyShooterOnline/Character/ShooterCharacter.h"
+#include "UdemyShooterOnline/PlayerController/ShooterPlayerController.h"
 
 // Sets default values
 AMasterWeapon::AMasterWeapon()
@@ -76,7 +78,40 @@ void AMasterWeapon::Tick(float DeltaTime)
 void AMasterWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
 	DOREPLIFETIME(AMasterWeapon, WeaponState);
+
+	DOREPLIFETIME(AMasterWeapon, Ammo);
+}
+
+void AMasterWeapon::OnRep_Owner()
+{
+	Super::OnRep_Owner();
+
+	//Si seteamos Owner a null en el servidor (Funcion Dropped()) tenemos que propagarlo al resto de clientes tambien
+	if (Owner == nullptr)
+	{
+		ShooterOwnerCharacter = nullptr;
+		ShooterOwnerController = nullptr;
+	}
+	else
+	{
+		SetHUDAmmo();
+	}
+}
+
+void AMasterWeapon::SetHUDAmmo()
+{
+	ShooterOwnerCharacter = ShooterOwnerCharacter == nullptr ? Cast<AShooterCharacter>(GetOwner()) : ShooterOwnerCharacter;
+	if (ShooterOwnerCharacter)
+	{
+		ShooterOwnerController = ShooterOwnerController == nullptr ? Cast<AShooterPlayerController>(ShooterOwnerCharacter->Controller) : ShooterOwnerController;
+
+		if (ShooterOwnerController)
+		{
+			ShooterOwnerController->SetHUDWeaponAmmo(Ammo);
+		}
+	}
 }
 
 void AMasterWeapon::OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -118,6 +153,24 @@ void AMasterWeapon::OnRep_WeaponState()
 		break;
 	}
 }
+
+/*
+* Funcion que gestiona la logica cuando se dispara con el arma: 1) Restar una bala; 2) Actualizar HUD
+* 
+* Teniendo en cuenta que esto se llama desde el servidor [AMasterWeapon::Fire()] se ejecuta la misma logica en OnRep_Ammo
+*/
+
+void AMasterWeapon::SpendRound()
+{
+	--Ammo;
+	SetHUDAmmo();
+}
+
+void AMasterWeapon::OnRep_Ammo()
+{
+	SetHUDAmmo();
+}
+
 
 void AMasterWeapon::SetWeaponState(EWeaponState State)
 {
@@ -186,6 +239,9 @@ void AMasterWeapon::Fire(const FVector& HitTarget)
 			}
 		}
 	}
+
+	SpendRound();
+
 }
 
 void AMasterWeapon::Dropped()
@@ -198,5 +254,9 @@ void AMasterWeapon::Dropped()
 	WeaponMesh->DetachFromComponent(DetachRules);
 
 	SetOwner(nullptr);
+
+	ShooterOwnerCharacter = nullptr;
+
+	ShooterOwnerController = nullptr;
 }
 

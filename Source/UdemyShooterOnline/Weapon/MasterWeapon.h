@@ -28,6 +28,10 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	virtual void OnRep_Owner() override;
+
+	void SetHUDAmmo();
+
 	void ShowPickupWidget(bool bShowWidget);
 
 	virtual void Fire(const FVector& HitTarget); //Usamos "&" para evitar usar una copia, y usar la referencia de esa variable
@@ -151,6 +155,23 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<class ACasing> CasingClass;
+
+	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_Ammo)
+	int32 Ammo;
+
+	UFUNCTION()
+	void OnRep_Ammo();
+
+	void SpendRound();
+
+	UPROPERTY(EditAnywhere)
+	int32 MagCapacity;
+	
+	UPROPERTY()
+	class AShooterCharacter* ShooterOwnerCharacter;
+
+	UPROPERTY()
+	class AShooterPlayerController* ShooterOwnerController;
 
 public:	
 
