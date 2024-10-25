@@ -5,7 +5,11 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "UdemyShooterOnline/HUD/ShooterHUD.h"
+#include "UdemyShooterOnline/Weapon/WeaponTypes.h"
+#include "UdemyShooterOnline/ShooterTypes/CombatState.h"
 #include "CombatComponent.generated.h"
+
+
 
 class AMasterWeapon;
 
@@ -26,6 +30,11 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void EquipWeapon(AMasterWeapon* WeaponToEquip);
+
+	void Reload();
+
+	UFUNCTION(BlueprintCallable)
+	void FinishReloading();
 
 protected:
 
@@ -68,6 +77,13 @@ protected:
 	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
 
 	void SetHUDCrosshairs(float DeltaTime);
+
+	UFUNCTION(Server, Reliable)
+	void ServerReload();
+
+	void HandleReload();
+
+	int32 AmountToReload();
 
 private:
 
@@ -148,6 +164,40 @@ private:
 	void StartFireTimer();
 	void FireTimerFinished();
 
+	/*
+	* Funcion que indica si puede disparar o no el character que posee este componente
+	*/
+	bool CanFire();
+	
+	/*
+	* Municion que tiene el personaje del mismo tipo del arma (si tiene)
+	*/
+	UPROPERTY(ReplicatedUsing = OnRep_CarriedAmmo)
+	int32 CarriedAmmo;
+
+	UFUNCTION()
+	void OnRep_CarriedAmmo();
+
+	//Informacion: Por como funciona un TMap no es replicable en Unreal
+	//Esto porque usa un tipo de algoritmo que puede dar resultados diferentes en distintas maquinas
+	//Para nuestro proyecto, no importa, ya que solo queremos que sea replicable el CarriedAmmo
+	//La municion del personaje en relacion al arma equipada
+	UPROPERTY(EditAnywhere)
+	TMap<EWeaponType, uint32> CarriedAmmoMap;		
+
+	//Variable que define las balas que tiene el personaje al principio
+	UPROPERTY(EditAnywhere)
+	int32 StartARAmmo = 30;
+
+	void InitializeCarriedAmmo();
+
+	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
+	ECombatState CombatState = ECombatState::ECS_Unoccupied;
+
+	UFUNCTION()
+	void OnRep_CombatState();
+
+	void UpdateAmmoValues();
 
 public:	
 		

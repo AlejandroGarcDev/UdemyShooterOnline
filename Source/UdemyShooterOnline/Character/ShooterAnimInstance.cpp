@@ -4,6 +4,7 @@
 #include "ShooterAnimInstance.h"
 #include "ShooterCharacter.h"
 #include "UdemyShooterOnline/Weapon/MasterWeapon.h"
+#include "UdemyShooterOnline/ShooterTypes/CombatState.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 
@@ -98,4 +99,6 @@ void UShooterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 			RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 15.f);
 		}
 	}
+
+	bUseFabrik = ShooterCharacter->GetCombatState() != ECombatState::ECS_Reloading; //Mientras no estamos recargando podemos usar Fabrik (mano atachada al arma)
 }

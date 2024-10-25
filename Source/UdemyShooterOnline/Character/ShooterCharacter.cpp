@@ -20,7 +20,7 @@
 #include "TimerManager.h"
 #include "Misc/App.h"
 #include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
-
+#include "UdemyShooterOnline/Weapon/WeaponTypes.h"
 
 // Sets default values
 AShooterCharacter::AShooterCharacter()
@@ -169,6 +169,7 @@ void AShooterCharacter::Elim()
 
 void AShooterCharacter::MulticastElim_Implementation()
 {
+	//Seteamos la variable Ammo del HUD del jugador en 0 para resetearlo, ya que al morir pierde el arma
 	if (ShooterPlayerController)
 	{
 		ShooterPlayerController->SetHUDWeaponAmmo(0);
@@ -245,6 +246,8 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		EnhacedInputComponent->BindAction(FireAction, ETriggerEvent::Ongoing, this, &ThisClass::FireButtonPressed);
 
 		EnhacedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &ThisClass::FireButtonReleased);
+
+		EnhacedInputComponent->BindAction(ReloadAction, ETriggerEvent::Completed, this, &ThisClass::ReloadButtonPressed);
 	}
 
 	//Ponemos opcion de agacharse como true por defecto para que el personaje pueda agacharse
@@ -279,6 +282,30 @@ void AShooterCharacter::PlayFireMontage(bool bAiming)
 		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 
+}
+
+void AShooterCharacter::PlayReloadMontage()
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ReloadMontage)
+	{
+		AnimInstance->Montage_Play(ReloadMontage);
+
+		//En funcion del arma que tengo equipada utilizo una parte del montage u otra
+		FName SectionName;
+		
+		switch (Combat->EquippedWeapon->GetWeaponType())
+		{
+		case EWeaponType::EWT_AssaultRifle:
+			SectionName = FName("Rifle");
+			break;
+		}
+
+		//Se ejecuta la animacion
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
 }
 
 void AShooterCharacter::PlayHitReactMontage()
@@ -467,6 +494,17 @@ void AShooterCharacter::CrouchButtonPressed()
 		Crouch();
 
 	}	
+}
+
+/*
+* Funcion de recargar
+*/
+void AShooterCharacter::ReloadButtonPressed()
+{
+	if (Combat)
+	{
+		Combat->Reload();
+	}
 }
 
 void AShooterCharacter::AimButtonPressed()
@@ -775,5 +813,12 @@ FVector AShooterCharacter::GetHitTarget() const
 {
 	if (Combat == nullptr) return FVector();
 	return Combat->HitTarget;
+}
+
+ECombatState AShooterCharacter::GetCombatState() const
+{
+	if (Combat == nullptr) return ECombatState::ECS_MAX;
+
+	return Combat->CombatState;
 }
 

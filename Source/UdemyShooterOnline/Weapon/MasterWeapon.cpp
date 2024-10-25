@@ -162,7 +162,7 @@ void AMasterWeapon::OnRep_WeaponState()
 
 void AMasterWeapon::SpendRound()
 {
-	--Ammo;
+	Ammo = FMath::Clamp(Ammo - 1, 0, MagCapacity);
 	SetHUDAmmo();
 }
 
@@ -199,6 +199,11 @@ void AMasterWeapon::SetWeaponState(EWeaponState State)
 
 		break;
 	}
+}
+
+bool AMasterWeapon::IsEmpty()
+{
+	return Ammo <= 0;
 }
 
 void AMasterWeapon::ShowPickupWidget(bool bShowWidget)
@@ -258,5 +263,12 @@ void AMasterWeapon::Dropped()
 	ShooterOwnerCharacter = nullptr;
 
 	ShooterOwnerController = nullptr;
+}
+
+void AMasterWeapon::AddAmmo(int32 AmmoToAdd)
+{
+	Ammo = FMath::Clamp(Ammo + AmmoToAdd, 0, MagCapacity);
+	
+	SetHUDAmmo();
 }
 

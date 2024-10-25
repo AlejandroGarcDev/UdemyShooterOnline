@@ -13,6 +13,7 @@
 #include "UdemyShooterOnline/PlayerController/ShooterPlayerController.h"
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
+#include "Sound/SoundCue.h"
 
 #define TRACE_LENGHT 80000.f
 
@@ -32,6 +33,13 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UCombatComponent, EquippedWeapon);
 	DOREPLIFETIME(UCombatComponent, bAiming);
+	DOREPLIFETIME_CONDITION(UCombatComponent, CarriedAmmo, COND_OwnerOnly); //Al poner _Condition, podemos poner un condicional en la replicacion,
+																			//En este caso COND_OwnerOnly hace que se replique desde el servidor hasta el
+																			//unico cliente posee el character de este combatcomponent
+																			//Esto esta hecho así porque la municion de cada personaje no hace falta replicarlo
+																			//A todos los clientes
+
+	DOREPLIFETIME(UCombatComponent, CombatState);
 
 }
 
@@ -47,6 +55,11 @@ void UCombatComponent::BeginPlay()
 		{
 			DefaultFOV = Character->GetFollowCamera()->FieldOfView;
 			CurrentFOV = DefaultFOV;
+		}
+
+		if (Character->HasAuthority())
+		{
+			InitializeCarriedAmmo();
 		}
 	}
 	// ...
@@ -223,6 +236,15 @@ void UCombatComponent::OnRep_EquippedWeapon()
 		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 		Character->bUseControllerRotationYaw = true;
 	}
+
+	if (EquippedWeapon->EquipSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			EquippedWeapon->EquipSound,
+			Character->GetActorLocation()
+		);
+	}
 }
 
 /*
@@ -321,7 +343,7 @@ void UCombatComponent::FireButtonPressed(bool bPressed)
 }
 void UCombatComponent::Fire()
 {
-	if (bCanFire)
+	if (CanFire())
 	{
 		bCanFire = false;
 
@@ -357,6 +379,39 @@ void UCombatComponent::FireTimerFinished()
 	{
 		Fire();
 	}
+
+	if (EquippedWeapon->IsEmpty())
+	{
+		Reload();
+	}
+}
+
+bool UCombatComponent::CanFire()
+{
+	if (EquippedWeapon == nullptr) return false;
+
+	return !EquippedWeapon->IsEmpty() && bCanFire && CombatState == ECombatState::ECS_Unoccupied;
+}
+
+void UCombatComponent::OnRep_CarriedAmmo()
+{
+	Controller = Controller == nullptr ? Cast<AShooterPlayerController>(Character->Controller) : Controller;
+	if (Controller)
+	{
+
+		Controller->SetHUDCarriedAmmo(CarriedAmmo); //Imprimimos por HUD la municion que tiene el character
+
+		if (EquippedWeapon)
+		{
+			Controller->SetHUDWeaponType(EquippedWeapon->GetWeaponType());
+		}
+	}
+}
+
+void UCombatComponent::InitializeCarriedAmmo()
+{
+	CarriedAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, StartARAmmo);
+
 }
 
 
@@ -376,7 +431,7 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 {
 	if (EquippedWeapon == nullptr) return;
 
-	if (Character)
+	if (Character && CombatState == ECombatState::ECS_Unoccupied)
 	{
 		Character->PlayFireMontage(bAiming);
 		EquippedWeapon->Fire(TraceHitTarget);
@@ -432,13 +487,148 @@ void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
 
 	const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
+
 	if (HandSocket)
 	{
 		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());
 	}
-	EquippedWeapon->SetOwner(Character);
-	EquippedWeapon->SetHUDAmmo();
+
+	EquippedWeapon->SetOwner(Character);	//Asignamos el character como dueño de la pistola
+	EquippedWeapon->SetHUDAmmo();			//Imprimimos por HUD la municion del arma
+
+
+
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType())) //Comprobamos si en nuestro Map de municiones existe la Key del arma que tenemos
+	{
+		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];	//Si existe, obtenemos el valor de esa key para asignarsela a la municion del character
+	}
+
+	Controller = Controller == nullptr ? Cast<AShooterPlayerController>(Character->Controller) : Controller;
+	if (Controller)
+	{
+
+		Controller->SetHUDCarriedAmmo(CarriedAmmo); //Imprimimos por HUD la municion que tiene el character
+													//Aunque esto se ejecute en el servidor OnRep_CarriedAmmo tiene el mismo codigo.
+
+		Controller->SetHUDWeaponType(EquippedWeapon->GetWeaponType());
+	}
+
+	if (EquippedWeapon->EquipSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			EquippedWeapon->EquipSound,
+			Character->GetActorLocation()
+		);
+	}
+
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 	Character->bUseControllerRotationYaw = true;
 }
 
+void UCombatComponent::Reload()
+{
+	if (CarriedAmmo > 0 && CombatState != ECombatState::ECS_Reloading)
+	{
+		ServerReload();
+	}
+}
+
+void UCombatComponent::HandleReload()
+{
+
+	Character->PlayReloadMontage();
+}
+
+int32 UCombatComponent::AmountToReload()
+{
+	if (EquippedWeapon == nullptr) return 0;
+
+	//Municion faltante en el cargador del arma
+	int32 RoomInMag = EquippedWeapon->GetMagCapacity() - EquippedWeapon->GetAmmo(); 
+
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
+	{
+		int32 AmountCarried = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
+		int32 Least = FMath::Min(RoomInMag, AmountCarried); //El valor minimo entre las balas que tengo y las que faltan en el cargador
+															//Son las que se meteran en el cargador al recargar
+
+		//Este clamp esta por si la municion del arma es mayor que la del magcapacity (no tendria sentido pero si se programa mal puede pasar)
+		//La resta de la variable RoomInMag saldria negativo y por tanto Least saldria negativo
+		return FMath::Clamp(RoomInMag, 0, Least);	
+
+	}
+	
+	//Si no entramos en el if significa que no existe ese tipo de arma en la variable CarriedAmmoMap
+	return 0;
+}
+
+//Funcion que se ejecutara en el servidor
+void UCombatComponent::ServerReload_Implementation()
+{
+	if (Character == nullptr) return;
+
+	CombatState = ECombatState::ECS_Reloading;
+	HandleReload();
+}
+
+void UCombatComponent::FinishReloading()
+{
+	if (Character == nullptr) return;
+	if (Character->HasAuthority())
+	{
+		CombatState = ECombatState::ECS_Unoccupied;
+		UpdateAmmoValues();
+	}
+	if (bFireButtonPressed)
+	{
+		Fire();
+	}
+}
+
+//Funcion que se ejecuta en todos los clientes -->DOREPLIFETIME(...); cuando cambia la variable CombatState
+void UCombatComponent::OnRep_CombatState()
+{
+	switch (CombatState)
+	{
+	case ECombatState::ECS_Reloading:
+		HandleReload();
+		break;
+
+	case ECombatState::ECS_Unoccupied:
+		if (bFireButtonPressed)
+		{
+			Fire();
+		}
+		break;
+	}
+
+}
+
+void UCombatComponent::UpdateAmmoValues()
+{
+	if (EquippedWeapon == nullptr)	return;
+
+	int32 ReloadAmount = AmountToReload();
+
+	//Logica para actualizar las variables de la municion que tiene el player por cuenta propia
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
+	{
+		CarriedAmmoMap[EquippedWeapon->GetWeaponType()] -= ReloadAmount;	//Substraemos la cantidad que vamos a recargar
+		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];		//Actualizamos la variable de municion restante fuera del Map
+
+	}
+
+
+	//Actualizamos el HUD de CarriedAmmo ( El HUD del WeaponAmmo se actualiza en AddAmmo() )
+	Controller = Controller == nullptr ? Cast<AShooterPlayerController>(Character->Controller) : Controller;
+	if (Controller)
+	{
+
+		Controller->SetHUDCarriedAmmo(CarriedAmmo); //Imprimimos por HUD la municion que tiene el character
+	}
+
+
+	EquippedWeapon->AddAmmo(ReloadAmount);	//Añadimos la municion al arma
+
+}

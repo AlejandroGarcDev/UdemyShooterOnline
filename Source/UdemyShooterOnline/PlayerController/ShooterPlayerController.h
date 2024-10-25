@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "UdemyShooterOnline/Weapon/WeaponTypes.h"
 #include "ShooterPlayerController.generated.h"
 
 /**
@@ -22,7 +23,11 @@ public:
 
 	void SetHUDDefeats(int32 Defeats);
 
-	void SetHUDWeaponAmmo(int32 Ammo);
+	void SetHUDWeaponAmmo(int32 WeaponAmmo);
+
+	void SetHUDCarriedAmmo(int32 CarriedAmmo);
+
+	void SetHUDWeaponType(EWeaponType WeaponEquipped);
 
 	virtual void OnPossess(APawn* InPawn) override;
 

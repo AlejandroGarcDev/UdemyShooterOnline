@@ -7,7 +7,9 @@
 #include "InputActionValue.h"
 #include "UdemyShooterOnline/ShooterTypes/TurningInPlace.h"
 #include "UdemyShooterOnline/Interfaces/InteractWithCrosshairsInterface.h"
+#include "UdemyShooterOnline/ShooterTypes/CombatState.h"
 #include "ShooterCharacter.generated.h"
+
 
 
 class UInputMappingContext;
@@ -35,6 +37,8 @@ public:
 	virtual void PostInitializeComponents() override;
 
 	void PlayFireMontage(bool bAiming);
+
+	void PlayReloadMontage();
 
 	void PlayElimMontage();
 
@@ -94,14 +98,25 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
 	UInputAction* FireAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	UInputAction* ReloadAction;
+
+	/**
+	*	Animation montages
+	*/
+
 	UPROPERTY(EditAnywhere, Category = Combat)
 	class UAnimMontage* FireWeaponMontage;
 
 	UPROPERTY(EditAnywhere, Category = Combat)
-	class UAnimMontage* HitReactMontage;
+	UAnimMontage* ReloadMontage;
 
 	UPROPERTY(EditAnywhere, Category = Combat)
-	class UAnimMontage* ElimMontage;
+	UAnimMontage* HitReactMontage;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	UAnimMontage* ElimMontage;
+
 
 	void Look(const FInputActionValue& Value);
 
@@ -112,6 +127,8 @@ protected:
 	void EquipButtonPressed();
 
 	void CrouchButtonPressed();
+
+	void ReloadButtonPressed();
 
 	void AimButtonPressed();
 
@@ -153,7 +170,7 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = Camera)
 	class UCameraComponent* FollowCamera;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true)) //Al ser una variable privada tenemos que ponerle el meta para acceder a ella en blueprints
 	class UWidgetComponent* OverheadWidget; //Widget para mostrar el nombre encima del personaje
 
 	//Esta variable es para guardar el arma que este cerca del jugador
@@ -163,7 +180,7 @@ private:
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AMasterWeapon* LastWeapon);
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true)) //Al ser una variable privada tenemos que ponerle el meta para acceder a ella en blueprints
 	class UCombatComponent* Combat;
 
 	//Reliable es para confimar que se ha executado (protocolo de confirmacion para manejar funciones por internet). En funciones como el tick no es recomendado
@@ -249,5 +266,7 @@ public:
 	FORCEINLINE bool IsElimmed() const { return bElimmed; }
 	FORCEINLINE float GetHealth() const { return Health; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+
+	ECombatState GetCombatState() const;
 };
 

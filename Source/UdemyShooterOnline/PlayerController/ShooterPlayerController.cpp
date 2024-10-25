@@ -7,6 +7,7 @@
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "UdemyShooterOnline/Character/ShooterCharacter.h"
+#include "UdemyShooterOnline/Weapon/WeaponTypes.h"
 
 void AShooterPlayerController::BeginPlay()
 {
@@ -86,7 +87,7 @@ void AShooterPlayerController::SetHUDWeaponAmmo(int32 WeaponAmmo)
 {
 	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
 
-	//Comprobamos que existe AmmoAmount
+	//Comprobamos que existe WeaponAmmoAmount
 	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
 		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
 		ShooterHUD->CharacterOverlay->WeaponAmmoAmount)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
@@ -94,6 +95,45 @@ void AShooterPlayerController::SetHUDWeaponAmmo(int32 WeaponAmmo)
 		FString WeaponAmmoText = FString::Printf(TEXT("%d"), WeaponAmmo);
 		ShooterHUD->CharacterOverlay->WeaponAmmoAmount->SetText(FText::FromString(WeaponAmmoText));
 	}
+
+}
+
+void AShooterPlayerController::SetHUDCarriedAmmo(int32 CarriedAmmo)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	//Comprobamos que existe CarriedAmmoAmount
+	if (ShooterHUD &&										//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&						//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->CarriedAmmoAmount)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+	{
+		FString CarriedAmmoText = FString::Printf(TEXT("%d"), CarriedAmmo);
+		ShooterHUD->CharacterOverlay->CarriedAmmoAmount->SetText(FText::FromString(CarriedAmmoText));
+	}
+}
+
+void AShooterPlayerController::SetHUDWeaponType(EWeaponType WeaponEquipped)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	//Comprobamos que existe WeaponEquipped
+	if (ShooterHUD &&										//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&						//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->WeaponEquipped)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+	{
+		FString SWeaponEquipped;
+		switch (WeaponEquipped)
+		{
+		case EWeaponType::EWT_AssaultRifle:
+			SWeaponEquipped = "Assault Rifle";
+			break;
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("%s"), *SWeaponEquipped);
+
+		ShooterHUD->CharacterOverlay->WeaponEquipped->SetText(FText::FromString(SWeaponEquipped));
+	}
+
 
 }
 
