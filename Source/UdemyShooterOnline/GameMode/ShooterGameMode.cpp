@@ -8,6 +8,30 @@
 #include "GameFramework/PlayerStart.h"
 #include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
 
+AShooterGameMode::AShooterGameMode()
+{
+	bDelayedStart = true;
+}
+
+void AShooterGameMode::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	
+	if (MatchState == MatchState::WaitingToStart)
+	{
+		//LevelStartingTime es el tiempo que ha pasado hasta que entras en el mundo (menu, opciones, lo que sea)
+		//Se lo restas a GetWorld->GetTimeSeconds y tienes el tiempo que ha pasado desde que has entrado al mundo
+		//Una vez tienes ese tiempo se lo vas restando a TiempoDeEspera (WarmupTime). Cuando alcance 0 ya puedes empezar la partida
+		CountdownTime = WarmupTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+
+		if (CountdownTime <= 0.f)
+		{
+			StartMatch();
+		}
+	}
+}
+
+
 void AShooterGameMode::PlayerEliminited(AShooterCharacter* ElimmedCharacter, AShooterPlayerController* VictimController, AShooterPlayerController* AttackerController)
 {
 	AShooterPlayerState* AttackerPlayerState = AttackerController ? Cast<AShooterPlayerState>(AttackerController->PlayerState) : nullptr;
@@ -44,5 +68,27 @@ void AShooterGameMode::RequestRespawn(ACharacter* ElimmedCharacter, AController*
 		UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStart);
 		int32 Selection = FMath::RandRange(0, PlayerStart.Num() - 1);
 		RestartPlayerAtPlayerStart(ElimmedController, PlayerStart[Selection]);
+	}
+}
+
+void AShooterGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+
+	LevelStartingTime = GetWorld()->GetTimeSeconds();
+}
+
+void AShooterGameMode::OnMatchStateSet()
+{
+	Super::OnMatchStateSet();
+
+	//Recorre todos los controladores que existan
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		AShooterPlayerController* ShooterPlayer = Cast<AShooterPlayerController>(*It);
+		if (ShooterPlayer)
+		{
+			ShooterPlayer->OnMatchStateSet(MatchState);
+		}
 	}
 }

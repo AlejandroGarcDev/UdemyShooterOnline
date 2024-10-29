@@ -37,4 +37,6 @@ public:
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* WeaponEquipped;
 
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* MatchCountdownText;
 };

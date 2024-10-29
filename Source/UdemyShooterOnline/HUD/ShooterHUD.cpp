@@ -4,14 +4,16 @@
 #include "ShooterHUD.h"
 #include "GameFramework/PlayerController.h"
 #include "CharacterOverlay.h"
+#include "Announcement.h"
 
 void AShooterHUD::BeginPlay()
 {
 	Super::BeginPlay();
-
-	AddCharacterOverlay();
 }
 
+/*
+* Funcion que genera una instancia de la clase guardada en CharacterOverlayClass, la guarda en CharacterOverlay y se imprime por pantalla
+*/
 void AShooterHUD::AddCharacterOverlay()
 {	
 
@@ -24,6 +26,20 @@ void AShooterHUD::AddCharacterOverlay()
 	}
 }
 
+/*
+* Funcion que genera una instancia de la clase guardada en AnnouncementClass, la guarda en Announcement y se imprime por pantalla
+*/
+void AShooterHUD::AddAnnouncement()
+{
+
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && AnnouncementClass)
+	{
+		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
+		Announcement->AddToViewport();
+
+	}
+}
 
 void AShooterHUD::DrawHUD()
 {

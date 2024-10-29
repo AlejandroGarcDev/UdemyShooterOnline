@@ -16,7 +16,26 @@ class UDEMYSHOOTERONLINE_API AShooterGameMode : public AGameMode
 
 public:
 
+	AShooterGameMode();
+
+	virtual void Tick(float DeltaTime) override;
+
 	virtual void PlayerEliminited(class AShooterCharacter* ElimmedCharacter, class AShooterPlayerController* VictimController, AShooterPlayerController* AttackerController);
 
 	virtual void RequestRespawn(class ACharacter* ElimmedCharacter, AController* ElimmedController);
+
+	UPROPERTY(EditDefaultsOnly)
+	float WarmupTime = 10.f;
+
+	float LevelStartingTime = 0.f;
+
+protected:
+
+	virtual void BeginPlay() override;
+
+	virtual void OnMatchStateSet() override;
+
+private:
+
+	float CountdownTime = 0.f;
 };

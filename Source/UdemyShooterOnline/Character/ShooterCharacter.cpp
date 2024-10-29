@@ -79,6 +79,7 @@ void AShooterCharacter::BeginPlay()
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			Subsystem->AddMappingContext(CharacterMappingContext, 0);
+			bInputsSet = true;
 		}
 	}
 
@@ -94,6 +95,23 @@ void AShooterCharacter::BeginPlay()
 void AShooterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	//Codigo para comprobar que tiene los controles seteados (esto se realiza en el begin play)
+
+	if (HasAuthority() && !bInputsSet && Controller)
+	{
+		ShooterPlayerController = !ShooterPlayerController ? Cast<AShooterPlayerController>(Controller) : ShooterPlayerController;
+		if (ShooterPlayerController)
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(ShooterPlayerController->GetLocalPlayer()))
+			{
+				Subsystem->AddMappingContext(CharacterMappingContext, 0);
+				bInputsSet = true; //successful
+			}
+		}
+	}
+
+
 
 	/*
 	* Simulated Proxy es un actor que no esta siendo controlado de manera local

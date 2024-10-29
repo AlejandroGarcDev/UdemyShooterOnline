@@ -35,16 +35,32 @@ public:
 
 	virtual void DrawHUD() override;
 
+	//Guardamos el tipo de clase que es el widget CharacterOverlay
 	UPROPERTY(EditAnywhere, Category = "Player Stats")
 	TSubclassOf<class UUserWidget> CharacterOverlayClass;
 
+	//Al tener la variable que define que clase es CharacterOverlayClass podemos crear una instancia y guardarla aqui
+	UPROPERTY()
 	class UCharacterOverlay* CharacterOverlay;
+
+	//Funcion que crea una instancia de la clase guardada en CharacterOverlayClass y la guarda en CharacterOverlay
+	void AddCharacterOverlay();
+
+
+	//Misma logica que CharacterOverlayClass
+	UPROPERTY(EditAnywhere, Category = "Announcements")
+	TSubclassOf<class UUserWidget> AnnouncementClass;
+
+	//Misma logica que CharacterOverlay
+	UPROPERTY()
+	class UAnnouncement* Announcement;
+
+	void AddAnnouncement();
+
 
 protected:
 
 	virtual void BeginPlay() override;
-
-	void AddCharacterOverlay();
 
 private:
 

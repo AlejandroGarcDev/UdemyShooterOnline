@@ -243,6 +243,9 @@ private:
 	UPROPERTY()
 	class AShooterPlayerState* ShooterPlayerState;
 
+	UPROPERTY()
+	bool bInputsSet = false;
+
 public:
 
 	// Setter llamado en MasterWeapon.cpp cuando haya solapamiento del AreaSphere y Character
