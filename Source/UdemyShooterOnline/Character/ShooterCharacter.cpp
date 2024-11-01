@@ -158,6 +158,7 @@ void AShooterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	//ya que es una funcion inherente debido al replicamiento
 	DOREPLIFETIME_CONDITION(AShooterCharacter, OverlappingWeapon, COND_OwnerOnly);
 	DOREPLIFETIME(AShooterCharacter, Health);
+	DOREPLIFETIME(AShooterCharacter, bDisableGameplay);
 }
 
 void AShooterCharacter::OnRep_ReplicatedMovement()
@@ -211,11 +212,8 @@ void AShooterCharacter::MulticastElim_Implementation()
 		Combat->DeathFire();
 	}
 
-	//Deshabilitamos el controller
-	if (ShooterPlayerController)
-	{
-		DisableInput(ShooterPlayerController);
-	}
+	//Deshabilitamos los input actions
+	bDisableGameplay = true;
 
 	//Deshabilitamos colisiones **IMPORTANTE: no se deshabilitan las de la malla (GetMesh()) porque se simulan fisicas de caida**
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -244,14 +242,11 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	//castChecked crashea el juego
 	if (UEnhancedInputComponent* EnhacedInputComponent = CastChecked<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		//En esta linea de codigo utilizo el puntero MoveAction (Inicializado en el editor ya que tiene "EditAnywhere", dentro del propio IA indico
-		//Que tecla utilizo para activarlo, en este metodo indico que lo que quiero es que me indique cuando se trigerea y que cuando lo haga,
-		//llame a su propio objeto y utilice la funcion de su propia clase llamada Move()
+		//En esta linea de codigo utilizo el puntero MoveAction, inicializado en el editor ya que tiene "EditAnywhere", dentro del propio InputAction indico
+		//Que tecla utilizo para activarlo (ver dentro de Unreal), en esta funcion se linkean el trigger del InputAction con la funcion Move,
 		EnhacedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::Move);
-
 		//misma logica para esta linea
 		EnhacedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::Look);
-
 		//misma logica para esta linea
 		EnhacedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ThisClass::Jump);
 
@@ -433,6 +428,9 @@ void AShooterCharacter::Look(const FInputActionValue& Value)
 
 void AShooterCharacter::Move(const FInputActionValue& Value)
 {
+
+	if (bDisableGameplay) return;
+
 	const FVector2D DirectionValue = Value.Get<FVector2D>();
 	
 	const FRotator Rotation = Controller->GetControlRotation();
@@ -447,11 +445,15 @@ void AShooterCharacter::Move(const FInputActionValue& Value)
 
 void AShooterCharacter::Jump()
 {
+	if (bDisableGameplay) return;
 	Super::Jump();
 }
 
 void AShooterCharacter::EquipButtonPressed()
 {
+
+	if(bDisableGameplay) return;
+
 	if (Combat)
 	{
 		if (HasAuthority())
@@ -493,6 +495,7 @@ void AShooterCharacter::ServerEquipButtonPressed_Implementation()
 
 void AShooterCharacter::CrouchButtonPressed()
 {
+	if (bDisableGameplay) return;
 
 	//Tipica logica de si esta sentado se levanta y si no se agacha
 	//bIsCrouched es una variable heredada de character la cual tiene replication y tiene ya su propia logica con metodos como crouch y uncrouch
@@ -519,6 +522,8 @@ void AShooterCharacter::CrouchButtonPressed()
 */
 void AShooterCharacter::ReloadButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->Reload();
@@ -527,6 +532,12 @@ void AShooterCharacter::ReloadButtonPressed()
 
 void AShooterCharacter::AimButtonPressed()
 {
+	if (bDisableGameplay)
+	{
+		StopAiming();
+		return;
+	}
+
 	if (Combat)
 	{
 		if (Combat->bAiming == false)
@@ -668,6 +679,8 @@ void AShooterCharacter::SimProxiesTurn()
 
 void AShooterCharacter::FireButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->FireButtonPressed(true);
@@ -676,6 +689,8 @@ void AShooterCharacter::FireButtonPressed()
 
 void AShooterCharacter::FireButtonReleased()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->FireButtonPressed(false);

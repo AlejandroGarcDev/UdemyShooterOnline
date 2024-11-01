@@ -31,6 +31,8 @@ public:
 
 	void SetHUDMatchCountdown(float Time);
 
+	void SetHUDAnnouncementCountdown(float Time);
+
 	virtual void OnPossess(APawn* InPawn) override;
 
 	virtual void Tick(float DeltaTime) override;
@@ -42,6 +44,10 @@ public:
 	virtual void ReceivedPlayer() override; //We override this func to sync with server clock as soon as possible
 
 	void OnMatchStateSet(FName State);
+
+	void HandleMatchHasStarted();
+
+	void HandleCooldown();
 
 protected:
 
@@ -72,6 +78,12 @@ protected:
 
 	void CheckTimeSync(float DeltaTime);
 
+	UFUNCTION(Server, Reliable)
+	void ServerCheckMatchState();
+
+	UFUNCTION(Client, Reliable)
+	void ClientJoinMidgame(FName StateOfMatch, float Warmup, float Match, float Cooldown, float StartingTime);
+
 private:
 
 	//Se utiliza UPROPERTY() porque al hacerlo se inicializa como nullptr, lo que permite que si no esta inicializado no tenga informacion random
@@ -79,8 +91,16 @@ private:
 	UPROPERTY()
 	class AShooterHUD* ShooterHUD;
 
-	//Temporal, esto irá en gamemode
-	float MatchTime = 120.f;
+	class AShooterGameMode* ShooterGameMode;
+
+	//Variable que define el tiempo de una partida, esta variable es cambiado en la funcion ServerCheckMatchState
+	float MatchTime = 0.f;
+
+	float WarmupTime = 0.f;
+
+	float CooldownTime = 0.f;
+
+	float LevelStartingTime = 0.f;
 
 	uint32 CountdownInt=0;
 

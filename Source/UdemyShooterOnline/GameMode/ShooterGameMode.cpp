@@ -7,6 +7,12 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerStart.h"
 #include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
+#include "UdemyShooterOnline/GameState/ShooterGameState.h"
+
+namespace MatchState
+{
+	const FName Cooldown = FName("Cooldown");
+}
 
 AShooterGameMode::AShooterGameMode()
 {
@@ -29,6 +35,24 @@ void AShooterGameMode::Tick(float DeltaTime)
 			StartMatch();
 		}
 	}
+	else if (MatchState == MatchState::InProgress)
+	{
+		CountdownTime = WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+
+		if (CountdownTime <= 0.f)
+		{
+			SetMatchState(MatchState::Cooldown);
+		}
+	}
+	else if (MatchState == MatchState::Cooldown)
+	{
+		CountdownTime = CooldownTime + WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+
+		if (CountdownTime <= 0.f)
+		{
+			RestartGame();
+		}
+	}
 }
 
 
@@ -37,9 +61,12 @@ void AShooterGameMode::PlayerEliminited(AShooterCharacter* ElimmedCharacter, ASh
 	AShooterPlayerState* AttackerPlayerState = AttackerController ? Cast<AShooterPlayerState>(AttackerController->PlayerState) : nullptr;
 	AShooterPlayerState* VictimPlayerState = VictimController ? Cast<AShooterPlayerState>(VictimController->PlayerState) : nullptr;
 
-	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState)
+	AShooterGameState* ShooterGameState = GetGameState<AShooterGameState>();
+
+	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState && GameState)
 	{
 		AttackerPlayerState->AddToScore(1.0f);
+		ShooterGameState->UpdateTopScore(AttackerPlayerState); //Actualizamos regristro del ganador de la partida
 	}
 
 	if (VictimPlayerState)
@@ -58,6 +85,7 @@ void AShooterGameMode::RequestRespawn(ACharacter* ElimmedCharacter, AController*
 	if (ElimmedCharacter)
 	{
 		ElimmedCharacter->Reset(); //Dejamos de poseer el pawn que tengamos, de esta forma podemos poseer un nuevo pawn, character, etc.
+
 
 		ElimmedCharacter->Destroy();
 	}

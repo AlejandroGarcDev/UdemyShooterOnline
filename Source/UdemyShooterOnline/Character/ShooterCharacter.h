@@ -68,6 +68,10 @@ public:
 
 	virtual void Reset() override;
 
+	UPROPERTY(Replicated)
+	//Variable que sirve para deshabilitar funciones relaciones con el combate pero permite girar la camara, se usa cuando la partida acabe
+	bool bDisableGameplay = false;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -271,5 +275,7 @@ public:
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 
 	ECombatState GetCombatState() const;
+
+	FORCEINLINE UCombatComponent* GetCombatComponent() const { return Combat; }
 };
 

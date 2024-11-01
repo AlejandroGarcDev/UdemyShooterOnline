@@ -36,6 +36,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void FinishReloading();
 
+	void FireButtonPressed(bool bPressed);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -47,8 +49,6 @@ protected:
 
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
-
-	void FireButtonPressed(bool bPressed);
 
 	void Fire();
 
@@ -185,9 +185,12 @@ private:
 	UPROPERTY(EditAnywhere)
 	TMap<EWeaponType, uint32> CarriedAmmoMap;		
 
-	//Variable que define las balas que tiene el personaje al principio
+	//Variable que define las balas que tiene el personaje al principio AR=AssaultRifle
 	UPROPERTY(EditAnywhere)
 	int32 StartARAmmo = 30;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartRocketAmmo = 0;
 
 	void InitializeCarriedAmmo();
 

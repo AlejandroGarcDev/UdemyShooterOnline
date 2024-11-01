@@ -11,7 +11,10 @@
 #include "Net/UnrealNetwork.h"
 #include "UdemyShooterOnline/GameMode/ShooterGameMode.h"
 #include "UdemyShooterOnline/HUD/Announcement.h"
-
+#include "Kismet/GameplayStatics.h"
+#include "UdemyShooterOnline/ShooterComponents/CombatComponent.h"
+#include "UdemyShooterOnline/GameState/ShooterGameState.h"
+#include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
 
 
 void AShooterPlayerController::BeginPlay()
@@ -20,10 +23,7 @@ void AShooterPlayerController::BeginPlay()
 
 	ShooterHUD=GetHUD<AShooterHUD>();
 
-	if (ShooterHUD)
-	{
-		ShooterHUD->AddAnnouncement();
-	}
+	ServerCheckMatchState();
 }
 
 
@@ -171,6 +171,9 @@ void AShooterPlayerController::SetHUDWeaponType(EWeaponType WeaponEquipped)
 	}
 }
 
+/*
+* Funcion que actualiza el tiempo del contador del tiempo de la partida
+*/
 void AShooterPlayerController::SetHUDMatchCountdown(float Time)
 {
 	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
@@ -180,6 +183,13 @@ void AShooterPlayerController::SetHUDMatchCountdown(float Time)
 		ShooterHUD->CharacterOverlay &&						//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
 		ShooterHUD->CharacterOverlay->MatchCountdownText)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
 	{
+		//Durante la transicion de estados (MatchState) hay un pequeño momento que el tiempo puede verse negativo
+		if (Time < 0.f)
+		{
+			ShooterHUD->CharacterOverlay->MatchCountdownText->SetText(FText());
+			return;
+		}
+
 		int32 Minutes = FMath::FloorToInt(Time / 60.f);
 		int32 Seconds = Time - Minutes * 60;
 
@@ -189,13 +199,70 @@ void AShooterPlayerController::SetHUDMatchCountdown(float Time)
 	}
 }
 
+
+/*
+* Funcion que actualiza el tiempo del contador del calentamiento (antes de la partida)
+*/
+void AShooterPlayerController::SetHUDAnnouncementCountdown(float Time)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	//Comprobamos que existe WarmupTime
+	if (ShooterHUD &&										//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->Announcement &&							//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->Announcement->WarmupTime)				//Comprobamos la variables dentro de Announcement. Alterar este orden puede provocar nullptr except.
+	{
+		//Durante la transicion de estados (MatchState) hay un pequeño momento que el tiempo puede verse negativo
+		if (Time < 0.f)
+		{
+			ShooterHUD->Announcement->WarmupTime->SetText(FText());
+			return;
+		}
+
+		int32 Minutes = FMath::FloorToInt(Time / 60.f);
+		int32 Seconds = Time - Minutes * 60;
+
+		//%02d imprime una variable integer con un formato de 2 digitos, si por ejemplo paso un 5 se imprimirá 05
+		FString CountdownText = FString::Printf(TEXT("%02d:%02d"), Minutes, Seconds);
+		ShooterHUD->Announcement->WarmupTime->SetText(FText::FromString(CountdownText));
+	}
+}
+
+
 void AShooterPlayerController::SetHUDTime()
 {
-	uint32 SecondsLeft = FMath::CeilToInt(MatchTime - GetServerTime());
+	float TimeLeft = 0.f;
+	
+	//WarmupTime == tiempo que se ha decidido que tiene que pasar hasta que empiece la partida
+	//GetServerTime() == Da el tiempo que debera tener aprox el server (Se le suma una cantidad de delay)
+	//LevelStartingTime == variable que se inicializa al momento de entrar en partida con GetTimeSeconds, por lo que es el tiempo que ha pasado hasta que ha comenzado la partida (en menus, partidas anteriores, etc...)
+	//Si restamos a GetServerTime LevelStartingTime, tenemos el tiempo que ha transcurrido desde que se ha entrado a la partida
+	//Si esa resta se la vamos restando a WarmupTime tenemos el tiempo restante para que la partida pase de fase (In progress)
+	if (MatchState == MatchState::WaitingToStart) TimeLeft = WarmupTime - GetServerTime() + LevelStartingTime;
+	else if (MatchState == MatchState::InProgress) TimeLeft = WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
+	else if (MatchState == MatchState::Cooldown) TimeLeft = CooldownTime + MatchTime - GetServerTime() + LevelStartingTime;
+	uint32 SecondsLeft = FMath::CeilToInt(TimeLeft);
+
+	if (HasAuthority())
+	{
+		ShooterGameMode = ShooterGameMode == nullptr ? Cast<AShooterGameMode>(UGameplayStatics::GetGameMode(this)) : ShooterGameMode;
+		if (ShooterGameMode)
+		{
+			SecondsLeft = FMath::CeilToInt(ShooterGameMode->GetCountdownTime() + LevelStartingTime);
+		}
+	}
 
 	if (CountdownInt != SecondsLeft)
 	{
-		SetHUDMatchCountdown(SecondsLeft);
+		if (MatchState == MatchState::WaitingToStart || MatchState == MatchState::Cooldown)
+		{
+			SetHUDAnnouncementCountdown(TimeLeft);
+		}
+		if (MatchState == MatchState::InProgress)
+		{
+			SetHUDMatchCountdown(TimeLeft);
+		}
+
 	}
 	CountdownInt = SecondsLeft;
 }
@@ -235,6 +302,55 @@ void AShooterPlayerController::CheckTimeSync(float DeltaTime)
 
 	}
 }
+
+
+/*
+* Funcion que recoge del game mode el estado de la partida, esto para actualizar los tiempos de partida en cada jugador
+*/
+void AShooterPlayerController::ServerCheckMatchState_Implementation()
+{
+	AShooterGameMode* GameMode = Cast<AShooterGameMode>(UGameplayStatics::GetGameMode(this));
+
+	if (GameMode)
+	{
+		WarmupTime = GameMode->WarmupTime;
+		MatchTime = GameMode->MatchTime;
+		CooldownTime = GameMode->CooldownTime;
+		LevelStartingTime = GameMode->LevelStartingTime;
+		MatchState = GameMode->GetMatchState();
+
+		//Apunte: En lugar de hacer todas las variables replicadas, se usara un RTC ya que solo se enviaran las variables al principio por lo que no hay problema
+		ClientJoinMidgame(MatchState, WarmupTime, MatchTime, CooldownTime, LevelStartingTime);
+
+		//Si el matchstate = Waiting; se añade el overlay de waiting to start
+		if (ShooterHUD && MatchState == MatchState::WaitingToStart)
+		{
+			ShooterHUD->AddAnnouncement();
+		}
+	}
+}
+
+
+void AShooterPlayerController::ClientJoinMidgame_Implementation(FName StateOfMatch, float Warmup, float Match, float Cooldown, float StartingTime)
+{
+	WarmupTime = Warmup;
+	MatchTime = Match;
+	CooldownTime = Cooldown;
+	LevelStartingTime = StartingTime;
+	MatchState = StateOfMatch;
+
+	OnMatchStateSet(MatchState);
+
+	//Si el matchstate = Waiting; se añade el overlay de waiting to start
+	if (ShooterHUD && MatchState == MatchState::WaitingToStart)
+	{
+		ShooterHUD->AddAnnouncement();
+	}
+}
+
+
+
+
 
 /*
 * Esta funcion es ejecutada desde el servidor y lo que hace es pasar al cliente el momento de la peticion y el tiempo del mundo en el servidor
@@ -297,22 +413,14 @@ void AShooterPlayerController::OnMatchStateSet(FName State)
 	//Comprueba si la partida ha empezado y añade por pantalla el HUD el personaje
 	if (MatchState == MatchState::InProgress)
 	{
-		ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
-		
-		if (ShooterHUD)
-		{
-			ShooterHUD->AddCharacterOverlay();
-
-
-			//Se comprueba si announcement (tiempo para que empiece la partida) está generado, si lo está, se hace invisible debido a que ya empezó la partida
-			//No se borra porque al final de la partida se volvera a usar el widget (para no estar creando y borrando)
-			if (ShooterHUD->Announcement)
-			{
-				ShooterHUD->Announcement->SetVisibility(ESlateVisibility::Hidden);
-			}
-		}
+		HandleMatchHasStarted();
+	}
+	else if(MatchState == MatchState::Cooldown)
+	{
+		HandleCooldown();
 	}
 }
+
 
 /*
 * notify replication function para que se el cambio en MatchState se vea en los clientes
@@ -322,18 +430,99 @@ void AShooterPlayerController::OnRep_MatchState()
 	//Comprueba si la partida ha empezado y añade por pantalla el HUD el personaje
 	if (MatchState == MatchState::InProgress)
 	{
-		ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+		HandleMatchHasStarted();
+	}
+	else if (MatchState == MatchState::Cooldown)
+	{
+		HandleCooldown();
+	}
+}
 
-		if (ShooterHUD)
+/*
+* Funcion que ejecuta la logica que conlleva que la fase de la partida haya cambiando a "InProgress"
+* 1) Crear el HUD in game
+* 2) Invisibilizar el HUD de espera
+*/
+void AShooterPlayerController::HandleMatchHasStarted()
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD)
+	{
+		
+		if(ShooterHUD->CharacterOverlay == nullptr) ShooterHUD->AddCharacterOverlay();
+
+		//Se comprueba si announcement (tiempo para que empiece la partida) está generado, si lo está, se hace invisible debido a que ya empezó la partida
+		//No se borra porque al final de la partida se volvera a usar el widget (para no estar creando y borrando)
+		if (ShooterHUD->Announcement)
 		{
-			ShooterHUD->AddCharacterOverlay();
+			ShooterHUD->Announcement->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+}
 
-			//Se comprueba si announcement (tiempo para que empiece la partida) está generado, si lo está, se hace invisible debido a que ya empezó la partida
-			//No se borra porque al final de la partida se volvera a usar el widget (para no estar creando y borrando)
-			if (ShooterHUD->Announcement)
+/*
+* Funcion que ejecuta la logica cuando se acaba una partida (mostrar ganador, puntuaciones, etc...)
+*/
+void AShooterPlayerController::HandleCooldown()
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD)
+	{
+		ShooterHUD->CharacterOverlay->RemoveFromParent();
+
+		//Se activa la visibilidad del HUD Announcement para mostrar la puntuacion
+		if (ShooterHUD->Announcement && 
+			ShooterHUD->Announcement->AnnouncementText &&
+			ShooterHUD->Announcement->InfoText)
+		{
+			ShooterHUD->Announcement->SetVisibility(ESlateVisibility::Visible);
+
+			FString AnnouncementText("New Match Starts In:");
+			ShooterHUD->Announcement->AnnouncementText->SetText(FText::FromString(AnnouncementText));
+			
+			//Recogemos el valor del GameState, ya que aqui se guardan el ganador de la partida
+			AShooterGameState* ShooterGameState = Cast<AShooterGameState>(UGameplayStatics::GetGameState(this));
+			//Recogemos el valor del playerState del cliente, asi podemos comprobar si hemos ganado nosotros
+			AShooterPlayerState* ShooterPlayerState = GetPlayerState<AShooterPlayerState>();
+
+			if (ShooterGameState && ShooterPlayerState)
 			{
-				ShooterHUD->Announcement->SetVisibility(ESlateVisibility::Hidden);
+				TArray<AShooterPlayerState*> TopPlayers = ShooterGameState->TopScoringPlayers;
+				FString InfoTextString;
+				if (TopPlayers.Num() == 0)
+				{
+					InfoTextString = FString("No Winner");
+				}
+				else if (TopPlayers.Num() == 1 && TopPlayers[0] == ShooterPlayerState)
+				{
+					InfoTextString = FString("You are the winner!");
+				}
+				else if (TopPlayers.Num() == 1)
+				{
+					InfoTextString = FString::Printf(TEXT("Winner: \n%s"), *TopPlayers[0]->GetPlayerName());
+				}
+				else if (TopPlayers.Num() > 1)
+				{
+					InfoTextString = FString("Players tied for the win: \n");
+					//recorremos los jugadores ganadores
+					for (auto TiedPlayer : TopPlayers)
+					{
+						InfoTextString.Append(FString::Printf(TEXT("%s\n"), *TiedPlayer->GetPlayerName()));
+					}
+				}
+
+				ShooterHUD->Announcement->InfoText->SetText(FText::FromString(InfoTextString));
 			}
 		}
 	}
+
+	AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(GetPawn());
+	if (ShooterCharacter && ShooterCharacter->GetCombatComponent())
+	{
+		ShooterCharacter->bDisableGameplay = true;
+		ShooterCharacter->GetCombatComponent()->FireButtonPressed(false); //Si esta disparando cuando acaba la partida se pone a false a la fuerza
+	}
+
 }
