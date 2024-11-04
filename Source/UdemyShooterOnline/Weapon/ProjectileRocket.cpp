@@ -3,7 +3,10 @@
 
 #include "ProjectileRocket.h"
 #include "Kismet/GameplayStatics.h"
+#include "Components/BoxComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#include "Sound/SoundCue.h"
+#include "NiagaraComponent.h"
 
 AProjectileRocket::AProjectileRocket()
 {
@@ -13,12 +16,24 @@ AProjectileRocket::AProjectileRocket()
 
 }
 
+void AProjectileRocket::Destroyed()
+{
+
+
+}
+
 void AProjectileRocket::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (!HasAuthority())
+	{
+		CollisionBox->OnComponentHit.AddDynamic(this, &AProjectileRocket::OnHit);
+	}
+
 	if (TrailSystem)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAttached(
+		TrailSystemComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
 			TrailSystem,
 			GetRootComponent(),
 			FName(),
@@ -31,12 +46,22 @@ void AProjectileRocket::BeginPlay()
 
 }
 
+void AProjectileRocket::DestroyTimerFinished()
+{
+	Destroy();
+}
+
+/*
+* Funcion que aplica daño radial y emite particulas y sonido
+* Esta funcion se llama tanto en servidor como en cliente (BeginPlay-Clientes // SuperBeginPlay-Servidor) por lo que el daño radial se tiene 
+* que comprobar que sea en servidor unicamente (la aparicion de particulas y sonido si debe de ser en todas las maquinas
+*/
 void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 	//Instigator = Character que disparo el arma
 
 	APawn* FiringPawn = GetInstigator();
-	if (FiringPawn)
+	if (FiringPawn && HasAuthority())
 	{
 
 		AController* FiringController = FiringPawn->GetController();
@@ -61,6 +86,32 @@ void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, 
 			);
 		}
 	}
-	//Super::OnHit emite un sonido y particulas, ademas de destruir la bala
-	Super::OnHit(HitComp, OtherActor, OtherComp, NormalImpulse, Hit);
+
+	GetWorldTimerManager().SetTimer(
+		DestroyTimer,
+		this,
+		&AProjectileRocket::DestroyTimerFinished,
+		DestroyTime
+	);
+
+	if (ImpactParticles)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), ImpactParticles, GetActorTransform());
+	}
+	if (ImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, GetActorLocation());
+	}
+	if (RocketMesh)
+	{
+		RocketMesh->SetVisibility(false);
+	}
+	if (CollisionBox)
+	{
+		CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	if (TrailSystemComponent && TrailSystemComponent->GetSystemInstance())
+	{
+		TrailSystemComponent->GetSystemInstance()->Deactivate();
+	}
 }
