@@ -114,6 +114,13 @@ public:
 	UPROPERTY(EditAnywhere)
 	class USoundCue* EquipSound;
 
+
+	/**
+	* Enable or Disable custom depth (used to make outlines)
+	*/
+
+	void EnableCustomDepth(bool bEnable);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;

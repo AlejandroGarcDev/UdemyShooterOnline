@@ -11,6 +11,7 @@
 #include "Net/UnrealNetwork.h"
 #include "UdemyShooterOnline/Weapon/MasterWeapon.h"
 #include "UdemyShooterOnline/ShooterComponents/CombatComponent.h"
+#include "UdemyShooterOnline/ShooterComponents/BuffComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "ShooterAnimInstance.h"
@@ -45,6 +46,9 @@ AShooterCharacter::AShooterCharacter()
 
 	Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
 	Combat->SetIsReplicated(true);
+
+	BuffComponent = CreateDefaultSubobject<UBuffComponent>(TEXT("BuffComponent"));
+	BuffComponent->SetIsReplicated(true);
 
 	//If true, pawn is capable of crouching
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
@@ -218,6 +222,16 @@ void AShooterCharacter::MulticastElim_Implementation()
 	//Deshabilitamos colisiones **IMPORTANTE: no se deshabilitan las de la malla (GetMesh()) porque se simulan fisicas de caida**
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	bool bHideSniperScope = IsLocallyControlled() &&
+		Combat &&
+		Combat->bAiming &&
+		Combat->EquippedWeapon &&
+		Combat->EquippedWeapon->GetWeaponType() == EWeaponType::EWT_SniperRifle;
+
+	if (bHideSniperScope)
+	{
+		ShowSniperScopeWidget(false);
+	}
 }
 
 /*
@@ -267,15 +281,23 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 }
 
+/*
+* Funcion que sirve para asignar a los componentes las referencias del personaje
+*/
 void AShooterCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 	if (Combat)
 	{
 		Combat -> Character = this;
-
 	}
-
+	if (BuffComponent)
+	{
+		BuffComponent->Character = this;
+		BuffComponent->SetInitialSpeeds(
+			GetCharacterMovement()->MaxWalkSpeed, 
+			GetCharacterMovement()->MaxWalkSpeedCrouched);
+	}
 }
 
 void AShooterCharacter::PlayFireMontage(bool bAiming)
@@ -314,6 +336,31 @@ void AShooterCharacter::PlayReloadMontage()
 		case EWeaponType::EWT_AssaultRifle:
 			SectionName = FName("Rifle");
 			break;
+
+		case EWeaponType::EWT_RocketLauncher:
+			SectionName = FName("Rifle");
+			break;
+
+		case EWeaponType::EWT_Pistol:
+			SectionName = FName("Rifle");
+			break;
+
+		case EWeaponType::EWT_SubmachineGun:
+			SectionName = FName("Rifle");
+			break;
+
+		case EWeaponType::EWT_Shotgun:
+			SectionName = FName("Rifle");
+			break;
+
+		case EWeaponType::EWT_SniperRifle:
+			SectionName = FName("Rifle");
+			break;
+
+		case EWeaponType::EWT_GrenadeLauncher:
+			SectionName = FName("Rifle");
+			break;
+
 		}
 
 		//Se ejecuta la animacion
@@ -420,8 +467,8 @@ void AShooterCharacter::Look(const FInputActionValue& Value)
 	const FVector2D LookAxisValue = Value.Get<FVector2D>();
 	if (GetController())
 	{
-		AddControllerYawInput(LookAxisValue.X);
-		AddControllerPitchInput(LookAxisValue.Y);
+		AddControllerYawInput(LookAxisValue.X * SensibilidadX);
+		AddControllerPitchInput(LookAxisValue.Y * SensibilidadY);
 	}
 }
 
@@ -532,6 +579,7 @@ void AShooterCharacter::ReloadButtonPressed()
 
 void AShooterCharacter::AimButtonPressed()
 {
+	//bDisableGameplay=true cuando acaba la partida (por ejemplo)
 	if (bDisableGameplay)
 	{
 		StopAiming();
@@ -543,10 +591,14 @@ void AShooterCharacter::AimButtonPressed()
 		if (Combat->bAiming == false)
 		{
 			Combat->SetAiming(true);
+			SensibilidadX = 0.4f;
+			SensibilidadY = 0.4f;
 		}
 		else
 		{
 			StopAiming();
+			SensibilidadX = 1.f;
+			SensibilidadY = 1.f;
 		}
 	}
 }
@@ -783,10 +835,11 @@ void AShooterCharacter::MulticastHit_Implementation()
 /*
 * Esta funcion se llama cuando se actualiza la variable Health (ver Shootercharacter.h)
 */
-void AShooterCharacter::OnRep_Health()
+void AShooterCharacter::OnRep_Health(float LastHealth)
 {
 	UpdateHUDHealth();
-	if (!bElimmed)
+
+	if (!bElimmed && Health < LastHealth)
 	{
 		PlayHitReactMontage();
 	}

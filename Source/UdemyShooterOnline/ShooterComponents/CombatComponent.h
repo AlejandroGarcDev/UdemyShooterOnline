@@ -38,6 +38,8 @@ public:
 
 	void FireButtonPressed(bool bPressed);
 
+	void PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -83,6 +85,8 @@ protected:
 
 	void HandleReload();
 
+	void UpdateCarriedAmmo();
+
 	int32 AmountToReload();
 
 private:
@@ -111,7 +115,9 @@ private:
 	UPROPERTY(EditAnywhere)
 	float AimWalkSpeed;
 
-	bool bFireButtonPressed;
+	bool bFireButtonPressed=false;
+
+	bool bFireOnCooldown=false;
 
 	/*
 	* HUD and Crosshairs
@@ -159,6 +165,7 @@ private:
 
 	FTimerHandle FireTimer;
 	
+	//Variable para gestionar el disparo automatico y manual
 	bool bCanFire = true;
 
 	void StartFireTimer();
@@ -184,6 +191,9 @@ private:
 	//La municion del personaje en relacion al arma equipada
 	UPROPERTY(EditAnywhere)
 	TMap<EWeaponType, uint32> CarriedAmmoMap;		
+	
+	UPROPERTY(EditAnywhere)
+	int32 MaxCarriedAmmo = 500;
 
 	//Variable que define las balas que tiene el personaje al principio AR=AssaultRifle
 	UPROPERTY(EditAnywhere)
@@ -191,6 +201,21 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	int32 StartRocketAmmo = 0;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartPistolAmmo = 0;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartSMGAmmo = 0;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartShotgunAmmo = 0;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartSniperAmmo = 0;
+
+	UPROPERTY(EditAnywhere)
+	uint32 StartGrenadeLauncherAmmo = 0;
 
 	void InitializeCarriedAmmo();
 

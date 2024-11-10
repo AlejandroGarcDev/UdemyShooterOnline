@@ -32,8 +32,6 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	//Con esta funcion inicializamos los componentes del personaje,
-	//Como necesita un componente de combate se hace override de esta funcion
-	//Y se inicializa el componente en ella
 	virtual void PostInitializeComponents() override;
 
 	void PlayFireMontage(bool bAiming);
@@ -72,11 +70,14 @@ public:
 	//Variable que sirve para deshabilitar funciones relaciones con el combate pero permite girar la camara, se usa cuando la partida acabe
 	bool bDisableGameplay = false;
 
+	UFUNCTION(BlueprintImplementableEvent)
+	void ShowSniperScopeWidget(bool bShowScope);
+
+	void UpdateHUDHealth();
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
-
-	void UpdateHUDHealth();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
 	UInputMappingContext* CharacterMappingContext; // InputMapContext que contiene IA_Move
@@ -120,6 +121,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = Combat)
 	UAnimMontage* ElimMontage;
+
+	UPROPERTY()
+	float SensibilidadX = 1.f;
+
+	UPROPERTY()
+	float SensibilidadY = 1.f;
 
 
 	void Look(const FInputActionValue& Value);
@@ -187,6 +194,9 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true)) //Al ser una variable privada tenemos que ponerle el meta para acceder a ella en blueprints
 	class UCombatComponent* Combat;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true)) //Al ser una variable privada tenemos que ponerle el meta para acceder a ella en blueprints
+	class UBuffComponent* BuffComponent;
+
 	//Reliable es para confimar que se ha executado (protocolo de confirmacion para manejar funciones por internet). En funciones como el tick no es recomendado
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
@@ -228,7 +238,7 @@ private:
 	float Health = 100.f;
 
 	UFUNCTION()
-	void OnRep_Health();
+	void OnRep_Health(float LastHealth);
 
 	UPROPERTY()
 	class AShooterPlayerController* ShooterPlayerController;
@@ -271,11 +281,14 @@ public:
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
 	FORCEINLINE bool IsElimmed() const { return bElimmed; }
+
 	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE void SetHealth(float NewHealth) { Health=NewHealth; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 
 	ECombatState GetCombatState() const;
 
 	FORCEINLINE UCombatComponent* GetCombatComponent() const { return Combat; }
+	FORCEINLINE UBuffComponent* GetBuffComponent() const { return BuffComponent; }
 };
 

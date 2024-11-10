@@ -2,6 +2,7 @@
 
 
 #include "ProjectileRocket.h"
+#include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/BoxComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -10,9 +11,9 @@
 
 AProjectileRocket::AProjectileRocket()
 {
-	RocketMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RocketMesh"));
-	RocketMesh->SetupAttachment(RootComponent);
-	RocketMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ProjectileMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RocketMesh"));
+	ProjectileMesh->SetupAttachment(RootComponent);
+	ProjectileMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 }
 
@@ -31,24 +32,8 @@ void AProjectileRocket::BeginPlay()
 		CollisionBox->OnComponentHit.AddDynamic(this, &AProjectileRocket::OnHit);
 	}
 
-	if (TrailSystem)
-	{
-		TrailSystemComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
-			TrailSystem,
-			GetRootComponent(),
-			FName(),
-			GetActorLocation(),
-			GetActorRotation(),
-			EAttachLocation::KeepWorldPosition,
-			false
-		);
-	}
+	SpawnTrailSystem();
 
-}
-
-void AProjectileRocket::DestroyTimerFinished()
-{
-	Destroy();
 }
 
 /*
@@ -60,39 +45,9 @@ void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, 
 {
 	//Instigator = Character que disparo el arma
 
-	APawn* FiringPawn = GetInstigator();
-	if (FiringPawn && HasAuthority())
-	{
+	ExplodeDamage();
 
-		AController* FiringController = FiringPawn->GetController();
-		if (FiringController)
-		{
-
-			TArray<AActor*> IgnoredActors;
-			IgnoredActors.Add(this);
-
-			UGameplayStatics::ApplyRadialDamageWithFalloff(
-				this,		//World context object
-				Damage,		//BaseDamage
-				10.f,		//MinimumDamage
-				GetActorLocation(),				//Origin
-				200.f,		//DamageInnerRadius
-				500.f,		//DamageOuterRadius
-				1.f,		//DamageFalloff
-				UDamageType::StaticClass(),		//DamageTypeClass
-				IgnoredActors,					//IgnoreActors
-				this,							//DamageCauser
-				FiringController				//InstigatorController
-			);
-		}
-	}
-
-	GetWorldTimerManager().SetTimer(
-		DestroyTimer,
-		this,
-		&AProjectileRocket::DestroyTimerFinished,
-		DestroyTime
-	);
+	StartDestroyTimer();
 
 	if (ImpactParticles)
 	{
@@ -102,10 +57,12 @@ void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, 
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, GetActorLocation());
 	}
-	if (RocketMesh)
+	if (ProjectileMesh)
 	{
-		RocketMesh->SetVisibility(false);
+		ProjectileMesh->SetVisibility(false);
 	}
+
+	//Hacemos invisible el cohete
 	if (CollisionBox)
 	{
 		CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);

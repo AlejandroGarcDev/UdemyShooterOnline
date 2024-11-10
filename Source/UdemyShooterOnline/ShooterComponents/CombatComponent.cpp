@@ -15,8 +15,6 @@
 #include "TimerManager.h"
 #include "Sound/SoundCue.h"
 
-#define TRACE_LENGHT 80000.f
-
 UCombatComponent::UCombatComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -188,6 +186,8 @@ void UCombatComponent::InterpFOV(float DeltaTime)
 //Por como funciona los RPC, da igual si la funcion la ejecuta el cliente o el servidor, ya que en ambos casos la funcion será ejecutada en el servidor
 void UCombatComponent::SetAiming(bool bIsAiming)
 {
+	if (Character == nullptr || EquippedWeapon == nullptr) return;
+
 	//Al setear nuestra variable antes de que el RPC se ejecute, veremos en local antes que los otros jugadores como apuntamos,
 	//Esto no afecta al rendimiento del juego porque es simplemente el cambio de una pose y haremos que la experiencia sea mas fluida
 	bAiming = bIsAiming;
@@ -202,6 +202,10 @@ void UCombatComponent::SetAiming(bool bIsAiming)
 	//Una vez hemos actualizado el bool de apuntar y la velocidad, propagamos esa informacion al cliente.
 	ServerSetAiming(bIsAiming);
 
+	if (Character->IsLocallyControlled() && EquippedWeapon->GetWeaponType() == EWeaponType::EWT_SniperRifle)
+	{
+		Character->ShowSniperScopeWidget(bIsAiming);
+	}
 }
 
 //Funcion RPC (Remote Procedure Calls: Funciones que se llaman en cliente pero se ejecutan en el servidor) Esta funcion servira
@@ -332,15 +336,43 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 */
 void UCombatComponent::FireButtonPressed(bool bPressed)
 {
+
 	bFireButtonPressed = bPressed;
-
-
-	if (bFireButtonPressed && EquippedWeapon)
+	if (EquippedWeapon)
 	{
-		Fire();
+		if (bFireButtonPressed)
+		{
+			Fire();
+		}
+		else
+		{
+			if (!bFireOnCooldown)
+			{
+				bCanFire = true;
+			}
+		}
+	}
+}
+
+/*
+* Funcion que se ejecuta cuando se recoge municion (Es llamada desde AmmoPickup)
+*/
+void UCombatComponent::PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount)
+{
+	if (CarriedAmmoMap.Contains(WeaponType))
+	{
+		CarriedAmmoMap[WeaponType] = FMath::Clamp(CarriedAmmoMap[WeaponType] + AmmoAmount, 0, MaxCarriedAmmo); //Notice no limit ammo
+		UpdateCarriedAmmo();
 	}
 
+	//If we didnt have ammo, we reload automatically
+	if (EquippedWeapon && EquippedWeapon->IsEmpty() && EquippedWeapon->GetWeaponType() == WeaponType)
+	{
+		Reload();
+	}
 }
+
+
 void UCombatComponent::Fire()
 {
 	if (CanFire())
@@ -363,21 +395,37 @@ void UCombatComponent::StartFireTimer()
 {
 	if (EquippedWeapon == nullptr || Character == nullptr)	return;
 
+	bFireOnCooldown = true;
+
 	Character->GetWorldTimerManager().SetTimer(
 		FireTimer,									//Parametro que representa donde se guarda el timer
 		this,										//Objeto que llama al timer
 		&UCombatComponent::FireTimerFinished,		//Funcion que se ejecuta al terminar el timer
-		EquippedWeapon->FireDelay);									//Tiempo del timer
+		EquippedWeapon->FireDelay);					//Tiempo del timer
 }
 
 void UCombatComponent::FireTimerFinished()
 {
+	bFireOnCooldown = false;
+
 	if (EquippedWeapon == nullptr) return;
 
-	bCanFire = true;
-	if (bFireButtonPressed && EquippedWeapon->bAutomatic)
+	//Arma automatica->Puede disparar siempre, y si dejó el boton de disparar apretado, dispara
+	if (EquippedWeapon->bAutomatic)
 	{
-		Fire();
+		bCanFire = true;
+		if (bFireButtonPressed)
+		{
+			Fire();
+		}
+	}
+	//Arma manual->Solo puede disparar si tiene el boton sin apretar
+	else
+	{
+		if (!bFireButtonPressed)
+		{
+			bCanFire = true;
+		}
 	}
 
 	if (EquippedWeapon->IsEmpty())
@@ -412,6 +460,11 @@ void UCombatComponent::InitializeCarriedAmmo()
 {
 	CarriedAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, StartARAmmo);
 	CarriedAmmoMap.Emplace(EWeaponType::EWT_RocketLauncher, StartRocketAmmo);
+	CarriedAmmoMap.Emplace(EWeaponType::EWT_Pistol, StartPistolAmmo);
+	CarriedAmmoMap.Emplace(EWeaponType::EWT_SubmachineGun, StartSMGAmmo);
+	CarriedAmmoMap.Emplace(EWeaponType::EWT_Shotgun, StartShotgunAmmo);
+	CarriedAmmoMap.Emplace(EWeaponType::EWT_SniperRifle, StartSniperAmmo);
+	CarriedAmmoMap.Emplace(EWeaponType::EWT_GrenadeLauncher, StartGrenadeLauncherAmmo);
 
 }
 
@@ -539,6 +592,21 @@ void UCombatComponent::HandleReload()
 {
 
 	Character->PlayReloadMontage();
+}
+
+void UCombatComponent::UpdateCarriedAmmo()
+{
+	if (EquippedWeapon == nullptr) return;
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
+	{
+		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
+	}
+
+	Controller = Controller == nullptr ? Cast<AShooterPlayerController>(Character->Controller) : Controller;
+	if (Controller)
+	{
+		Controller->SetHUDCarriedAmmo(CarriedAmmo);
+	}
 }
 
 int32 UCombatComponent::AmountToReload()
