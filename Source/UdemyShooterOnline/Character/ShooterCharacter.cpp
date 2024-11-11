@@ -282,7 +282,8 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 }
 
 /*
-* Funcion que sirve para asignar a los componentes las referencias del personaje
+* Funcion heredada de Character, se ejecuta cuando sus componentes estan inicializadas (en BeginPlay puede que no), se utiliza para registrar valores iniciales,
+* Como los valores de velocidad iniciales del personaje
 */
 void AShooterCharacter::PostInitializeComponents()
 {
@@ -294,9 +295,14 @@ void AShooterCharacter::PostInitializeComponents()
 	if (BuffComponent)
 	{
 		BuffComponent->Character = this;
+
 		BuffComponent->SetInitialSpeeds(
 			GetCharacterMovement()->MaxWalkSpeed, 
 			GetCharacterMovement()->MaxWalkSpeedCrouched);
+
+		BuffComponent->SetInitialJumpVelocity(
+			GetCharacterMovement()->JumpZVelocity
+		);
 	}
 }
 

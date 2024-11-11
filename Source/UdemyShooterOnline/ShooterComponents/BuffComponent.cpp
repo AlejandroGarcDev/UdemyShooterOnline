@@ -11,6 +11,14 @@ UBuffComponent::UBuffComponent()
 
 }
 
+
+void UBuffComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	HealRampUp(DeltaTime);
+
+}
+
 void UBuffComponent::Heal(float HealAmount, float HealingTime)
 {
 	HealingRate = HealAmount / HealingTime;
@@ -38,10 +46,28 @@ void UBuffComponent::BuffSpeed(float BuffBaseSpeed, float BuffCroachSpeed, float
 	MulticastSpeedBuff(BuffBaseSpeed, BuffCroachSpeed);
 }
 
+/*
+* Overlap event solo se ejecuta en el servidor por lo que tenemos que hacer un multicast para propagar el cambio de velocidad en todas las maquinas y que no se vea raro
+* (ya que el servidor propaga el movimiento en los clientes pero cuando en los clientes se mueve a diferente velocidad no hay sincronizacion)
+*/
+void UBuffComponent::MulticastSpeedBuff_Implementation(float BaseSpeed, float CrouchSpeed)
+{
+	if (Character && Character->GetCharacterMovement())
+	{
+		Character->GetCharacterMovement()->MaxWalkSpeed = BaseSpeed;
+		Character->GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
+	}
+}
+
 void UBuffComponent::SetInitialSpeeds(float BaseSpeed, float CrouchSpeed)
 {
 	InitialBaseSpeed = BaseSpeed;
 	InitialCrouchSpeed = CrouchSpeed;
+}
+
+void UBuffComponent::SetInitialJumpVelocity(float JumpVelocity)
+{
+	InitialJumpVelocity = JumpVelocity;
 }
 
 void UBuffComponent::HealRampUp(float DeltaTime)
@@ -78,20 +104,40 @@ void UBuffComponent::ResetSpeeds()
 
 }
 
-/*
-* Overlap event solo se ejecuta en el servidor por lo que tenemos que hacer un multicast para propagar el cambio de velocidad en todas las maquinas y que no se vea raro
-* (ya que el servidor propaga el movimiento en los clientes pero cuando en los clientes se mueve a diferente velocidad no hay sincronizacion)
-*/
-void UBuffComponent::MulticastSpeedBuff_Implementation(float BaseSpeed, float CrouchSpeed)
+void UBuffComponent::BuffJump(float BuffJumpVelocity, float BuffTime)
 {
-	Character->GetCharacterMovement()->MaxWalkSpeed = BaseSpeed;
-	Character->GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
+	if (Character == nullptr) return;
+
+	Character->GetWorldTimerManager().SetTimer(
+		JumpBuffTimer,
+		this,
+		&UBuffComponent::ResetJump,
+		BuffTime
+	);
+	
+	if (Character->GetCharacterMovement())
+	{
+		Character->GetCharacterMovement()->JumpZVelocity = BuffJumpVelocity;
+	}
+
+	MulticastJumpBuff(BuffJumpVelocity);
 }
 
-void UBuffComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void UBuffComponent::MulticastJumpBuff_Implementation(float JumpVelocity)
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	HealRampUp(DeltaTime);
+	if (Character && Character->GetCharacterMovement())
+	{
+		Character->GetCharacterMovement()->JumpZVelocity = JumpVelocity;
+	}
+}
 
+void UBuffComponent::ResetJump()
+{
+	if (Character->GetCharacterMovement())
+	{
+		Character->GetCharacterMovement()->JumpZVelocity = InitialJumpVelocity;
+	}
+
+	MulticastJumpBuff(InitialJumpVelocity);
 }
 
