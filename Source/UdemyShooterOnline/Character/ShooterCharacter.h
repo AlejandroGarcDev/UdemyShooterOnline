@@ -10,10 +10,10 @@
 #include "UdemyShooterOnline/ShooterTypes/CombatState.h"
 #include "ShooterCharacter.generated.h"
 
-
-
 class UInputMappingContext;
 class UInputAction;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLeftGame);
 
 UCLASS()
 class UDEMYSHOOTERONLINE_API AShooterCharacter : public ACharacter, public IInteractWithCrosshairsInterface
@@ -21,6 +21,7 @@ class UDEMYSHOOTERONLINE_API AShooterCharacter : public ACharacter, public IInte
 	GENERATED_BODY()
 
 public:
+
 	// Sets default values for this character's properties
 	AShooterCharacter();
 	// Called every frame
@@ -34,12 +35,13 @@ public:
 	//Con esta funcion inicializamos los componentes del personaje,
 	virtual void PostInitializeComponents() override;
 
+	/**
+	*	Play Montage
+	*/
 	void PlayFireMontage(bool bAiming);
-
 	void PlayReloadMontage();
-
+	void PlaySwapMontage();
 	void PlayElimMontage();
-
 
 	/*
 			Funcion que se llamaba en Projectile.cpp
@@ -58,11 +60,11 @@ public:
 	*/
 	virtual void OnRep_ReplicatedMovement() override;
 
-	void Elim();
+	void Elim(bool bPlayerLeftGame);
 
 	//Multicast de animacionde  morir de un personaje
 	UFUNCTION(NetMulticast, Reliable)
-	void MulticastElim();
+	void MulticastElim(bool bPlayerLeftGame);
 
 	virtual void Reset() override;
 
@@ -74,6 +76,28 @@ public:
 	void ShowSniperScopeWidget(bool bShowScope);
 
 	void UpdateHUDHealth();
+
+	void UpdateHUDShield();
+
+	void UpdateHUDAmmo();
+
+	void SpawnDefaultWeapon();
+	
+	UPROPERTY()
+	TMap<FName, class UBoxComponent*> HitCollisionBoxes;
+
+	bool bFinishedSwapping = false; 
+
+	UFUNCTION(Server, Reliable)
+	void ServerLeaveGame();
+
+	FOnLeftGame OnLeftGame;
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastGainedTheLead();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastLostTheLead();
 
 protected:
 	// Called when the game starts or when spawned
@@ -122,6 +146,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = Combat)
 	UAnimMontage* ElimMontage;
 
+	UPROPERTY(EditAnywhere, Category = Combat)
+	UAnimMontage* SwapMontage;
+
 	UPROPERTY()
 	float SensibilidadX = 1.f;
 
@@ -162,6 +189,8 @@ protected:
 
 	void CameraBoomCrouch(float DeltaTime);
 
+	void DropOrDestroyWeapon(AMasterWeapon* Weapon);
+
 	/*
 	* Funcion que se ejecuta en Tick
 	* 
@@ -172,6 +201,54 @@ protected:
 	* 
 	*/
 	void PollInit();
+
+	UPROPERTY(EditAnywhere)
+	class UBoxComponent* head;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* pelvis;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* spine_02;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* spine_03;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* upperarm_r;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* lowerarm_r;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* upperarm_l;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* lowerarm_l;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* hand_r;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* hand_l;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* thigh_r;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* thigh_l;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* calf_r;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* calf_l;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* foot_r;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* foot_l;
 
 private:
 
@@ -191,11 +268,18 @@ private:
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AMasterWeapon* LastWeapon);
 
+	/*
+	* Character Components
+	*/
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true)) //Al ser una variable privada tenemos que ponerle el meta para acceder a ella en blueprints
 	class UCombatComponent* Combat;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = true)) //Al ser una variable privada tenemos que ponerle el meta para acceder a ella en blueprints
 	class UBuffComponent* BuffComponent;
+
+	UPROPERTY(VisibleAnywhere)
+	class ULagCompensationComponent* LagCompensation;
 
 	//Reliable es para confimar que se ha executado (protocolo de confirmacion para manejar funciones por internet). En funciones como el tick no es recomendado
 	UFUNCTION(Server, Reliable)
@@ -229,7 +313,7 @@ private:
 	float CalculateSpeed();
 
 	/**
-	* Player health
+	* Player Health
 	*/
 	UPROPERTY(EditAnywhere, Category = "Player Stats")
 	float MaxHealth = 100.f;
@@ -240,8 +324,26 @@ private:
 	UFUNCTION()
 	void OnRep_Health(float LastHealth);
 
+
+	/**
+	*	Player Shield
+	*/
+
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	float MaxShield = 100.f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Shield, VisibleAnywhere, Category = "Player Stats")
+	float Shield = 100.f;
+
+	UFUNCTION()
+	void OnRep_Shield(float LastShield);
+
 	UPROPERTY()
 	class AShooterPlayerController* ShooterPlayerController;
+
+	/**
+	* Elim Effects
+	*/
 
 	bool bElimmed = false;
 
@@ -254,11 +356,26 @@ private:
 
 	void ElimTimerFinished();
 
+	bool bLeftGame = false;
+
+	UPROPERTY(EditAnywhere)
+	class UNiagaraSystem* CrownSystem;
+
+	UPROPERTY(EditAnywhere)
+	class UNiagaraComponent* CrownComponent;
+
 	UPROPERTY()
 	class AShooterPlayerState* ShooterPlayerState;
 
 	UPROPERTY()
 	bool bInputsSet = false;
+
+	/**
+	*	Default Weapon
+	*/
+
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<AMasterWeapon> DefaultWeaponClass;
 
 public:
 
@@ -286,9 +403,17 @@ public:
 	FORCEINLINE void SetHealth(float NewHealth) { Health=NewHealth; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 
+	FORCEINLINE float GetShield() const { return Shield; }
+	FORCEINLINE void SetShield(float NewShield) { Shield = NewShield; }
+	FORCEINLINE float GetMaxShield() const { return MaxShield; }
+
 	ECombatState GetCombatState() const;
 
 	FORCEINLINE UCombatComponent* GetCombatComponent() const { return Combat; }
 	FORCEINLINE UBuffComponent* GetBuffComponent() const { return BuffComponent; }
+
+	bool IsLocallyReloading();
+
+	FORCEINLINE ULagCompensationComponent* GetLagCompensation() const { return LagCompensation; }
 };
 

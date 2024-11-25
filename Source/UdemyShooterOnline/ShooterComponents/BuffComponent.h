@@ -18,6 +18,8 @@ public:
 	friend class AShooterCharacter;
 
 	void Heal(float HealAmount, float HealingTime);
+	
+	void Shield(float ShieldAmount, float ShieldTime);
 
 	void BuffSpeed(float BuffBaseSpeed, float BuffCroachSpeed, float BuffTime);
 
@@ -31,6 +33,8 @@ protected:
 
 	void HealRampUp(float DeltaTime);
 
+	void ShieldRamUp(float DeltaTime);
+
 private:
 
 	UPROPERTY()
@@ -42,6 +46,13 @@ private:
 	bool bHealing = false;
 	float HealingRate = 0;
 	float AmountToHeal = 0;
+
+	/*
+	* Shield Buff
+	*/
+	bool bShield = false;
+	float ShieldRate = 0;
+	float AmountToShield = 0;
 
 	/*
 	* Speed Buff

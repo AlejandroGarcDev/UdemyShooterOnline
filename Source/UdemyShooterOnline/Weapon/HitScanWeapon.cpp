@@ -7,11 +7,13 @@
 #include "Kismet/GameplayStatics.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Sound/SoundCue.h"
-#include "Kismet/KismetMathLibrary.h"
 #include "WeaponTypes.h"
+#include "UdemyShooterOnline/ShooterComponents/LagCompensationComponent.h"
+#include "UdemyShooterOnline/PlayerController/ShooterPlayerController.h"
 
-#include "DrawDebugHelpers.h"
-
+/*
+* Funcion que ejecuta la logica de disparo en un arma HitScan (el propio arma es quien ejecuta el daño, en lugar de lanzar una bala)
+*/
 void AHitScanWeapon::Fire(const FVector& HitTarget)
 {
 	Super::Fire(HitTarget);
@@ -20,25 +22,46 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 	if (OwnerPawn == nullptr) return;
 	AController* InstigatorController = OwnerPawn->GetController();
 
-	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName("MuzzleFlash");
+	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName("MuzzleFlash"); //Boquilla del arma
 	if (MuzzleFlashSocket)
 	{
 		FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
-		FVector Start = SocketTransform.GetLocation();
+		FVector Start = SocketTransform.GetLocation(); //Obtenemos xyz de la boquilla
 
 		FHitResult FireHit;
-		WeaponTraceHit(Start, HitTarget, FireHit);
+		WeaponTraceHit(Start, HitTarget, FireHit); //Simulamos disparo desde la boquilla hasta la posicion que apuntamos
 
-		AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(FireHit.GetActor());
-		if (ShooterCharacter && HasAuthority() && InstigatorController)
+		AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(FireHit.GetActor()); //Comprobamos si hay un character al que hemos disparado
+		if (ShooterCharacter && InstigatorController)
 		{
-			UGameplayStatics::ApplyDamage(
-				ShooterCharacter,
-				Damage,
-				InstigatorController,
-				this,
-				UDamageType::StaticClass()
-			);
+			bool bCauseAuthorityDamage = !bUseServerSideRewind || OwnerPawn->IsLocallyControlled(); //Si somos el servidor (LocallyControlled) o si tenemos SSR como false
+			if (HasAuthority() && bCauseAuthorityDamage) //Si ha disparado el servidor, aplicamos daño directamente
+			{
+				const float DamageToCause = FireHit.BoneName.ToString() == FString("head") ? HeadShotDamage : Damage; //Si es headshot aplicamos daño de headshot
+
+				UGameplayStatics::ApplyDamage(
+					ShooterCharacter,
+					DamageToCause,
+					InstigatorController,
+					this,
+					UDamageType::StaticClass()
+				);
+			}
+			if(!HasAuthority() && bUseServerSideRewind) //Si no es el servidor quien disparó y el arma tiene como activo utilizar SSR, se llama al servidor para que compruebe el hit
+			{
+				ShooterOwnerCharacter = ShooterOwnerCharacter == nullptr ? Cast<AShooterCharacter>(OwnerPawn) : ShooterOwnerCharacter;
+				ShooterOwnerController = ShooterOwnerController == nullptr ? Cast<AShooterPlayerController>(InstigatorController) : ShooterOwnerController;
+				if (ShooterOwnerController && ShooterOwnerCharacter && ShooterOwnerCharacter->GetLagCompensation() && ShooterOwnerCharacter->IsLocallyControlled())
+				{
+					ShooterOwnerCharacter->GetLagCompensation()->ServerScoreRequest(
+						ShooterCharacter,
+						Start,
+						HitTarget, //Tambien se puede pasar como parametro FireHit.ImpactPoint
+						ShooterOwnerController->GetServerTime() - ShooterOwnerController->SingleTripTime, //Aprox del tiempo del server - delay entre cliente-server
+						this
+					);
+				}
+			}
 		}
 		if (ImpactParticles)
 		{
@@ -83,7 +106,7 @@ void AHitScanWeapon::WeaponTraceHit(const FVector& TraceStart, const FVector& Hi
 	if (World)
 	{	
 		//Si el arma tiene dispersion, el vector end se genera a traves de la funcion "TraceEndWithScatter"
-		FVector End = bUseScatter ? TraceEndWithScatter(TraceStart, HitTarget) : TraceStart + (HitTarget - TraceStart) * 1.25f;
+		FVector End = TraceStart + (HitTarget - TraceStart) * 1.25f;
 
 		World->LineTraceSingleByChannel(
 			OutHit,
@@ -97,6 +120,11 @@ void AHitScanWeapon::WeaponTraceHit(const FVector& TraceStart, const FVector& Hi
 		{
 			BeamEnd = OutHit.ImpactPoint;
 		}
+		else
+		{
+			OutHit.ImpactPoint = End;
+		}
+
 		if (BeamParticles)
 		{
 			UParticleSystemComponent* Beam = UGameplayStatics::SpawnEmitterAtLocation(
@@ -112,32 +140,4 @@ void AHitScanWeapon::WeaponTraceHit(const FVector& TraceStart, const FVector& Hi
 			}
 		}
 	}
-}
-
-/*
-* Al momento de disparar un arma con dispersion (escopeta) se ejecuta esta funcion:
-* 1) Se genera una esfera a la distancia "DistanceToSphere" que servira como referencia para tomar puntos aleatorios de ella y generar los perdigones
-* 2) Se genera un vector aleatorio desde el centro del origen hasta, como maximo, el perimetro de la esfera
-* 3) Teniendo el punto aleatorio generado se crea la trayectoria del perdigon
-*/
-FVector AHitScanWeapon::TraceEndWithScatter(const FVector& TraceStart, const FVector& HitTarget)
-{
-	//Se normaliza la distancia a la que apunta para despues generar una esfera de referencia a la hora de generar trayectorias aleatorias
-	FVector ToTargetNormalized = (HitTarget - TraceStart).GetSafeNormal();
-	FVector SphereCenter = TraceStart + ToTargetNormalized * DistanceToSphere;
-	
-	//Genero la localizacion random dentro de la esfera
-	FVector RandomVec = UKismetMathLibrary::RandomUnitVector() * FMath::FRandRange(0.f, SphereRadius);
-
-	//Añado offset o posicion de origen de la esfera al punto aleatorio generado
-	FVector EndLoc = SphereCenter + RandomVec;
-
-	//Genero el vector de desplazamiento de la bala
-	FVector ToEndLoc = EndLoc - TraceStart;
-
-	DrawDebugSphere(GetWorld(), SphereCenter, SphereRadius, 12, FColor::Red, true);
-	DrawDebugSphere(GetWorld(), SphereCenter + RandomVec, 4.f, 12, FColor::Orange, true);
-	DrawDebugLine(GetWorld(), TraceStart, TraceStart + ToEndLoc * TRACE_LENGHT / ToEndLoc.Size(), FColor::Cyan, true);
-
-	return FVector(TraceStart + ToEndLoc * TRACE_LENGHT / ToEndLoc.Size());
 }

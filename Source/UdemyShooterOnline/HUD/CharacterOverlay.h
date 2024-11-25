@@ -23,6 +23,12 @@ public:
 	class UTextBlock* HealthText;
 
 	UPROPERTY(meta = (BindWidget))
+	class UProgressBar* ShieldBar;
+
+	UPROPERTY(meta = (BindWidget))
+	class UTextBlock* ShieldText;
+
+	UPROPERTY(meta = (BindWidget))
 	UTextBlock* ScoreAmount;
 
 	UPROPERTY(meta = (BindWidget))
@@ -39,4 +45,11 @@ public:
 
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* MatchCountdownText;
+
+	UPROPERTY(meta = (BindWidget))
+	class UImage* HighPingImage;
+
+	UPROPERTY(meta = (BindWidgetAnim), Transient) //Transient para animaciones, significa que no está almacenado en disco duro, sino que se crea en el momento de su ejecucion
+	UWidgetAnimation* HighPingAnimation;
+
 };

@@ -14,6 +14,7 @@
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 #include "Sound/SoundCue.h"
+#include "UdemyShooterOnline/Weapon/Shotgun.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -30,6 +31,7 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UCombatComponent, EquippedWeapon);
+	DOREPLIFETIME(UCombatComponent, SecondaryWeapon);
 	DOREPLIFETIME(UCombatComponent, bAiming);
 	DOREPLIFETIME_CONDITION(UCombatComponent, CarriedAmmo, COND_OwnerOnly); //Al poner _Condition, podemos poner un condicional en la replicacion,
 																			//En este caso COND_OwnerOnly hace que se replique desde el servidor hasta el
@@ -187,7 +189,6 @@ void UCombatComponent::InterpFOV(float DeltaTime)
 void UCombatComponent::SetAiming(bool bIsAiming)
 {
 	if (Character == nullptr || EquippedWeapon == nullptr) return;
-
 	//Al setear nuestra variable antes de que el RPC se ejecute, veremos en local antes que los otros jugadores como apuntamos,
 	//Esto no afecta al rendimiento del juego porque es simplemente el cambio de una pose y haremos que la experiencia sea mas fluida
 	bAiming = bIsAiming;
@@ -201,11 +202,11 @@ void UCombatComponent::SetAiming(bool bIsAiming)
 
 	//Una vez hemos actualizado el bool de apuntar y la velocidad, propagamos esa informacion al cliente.
 	ServerSetAiming(bIsAiming);
-
 	if (Character->IsLocallyControlled() && EquippedWeapon->GetWeaponType() == EWeaponType::EWT_SniperRifle)
 	{
 		Character->ShowSniperScopeWidget(bIsAiming);
 	}
+	if(Character->IsLocallyControlled()) bAimButtonPressed = bIsAiming;
 }
 
 //Funcion RPC (Remote Procedure Calls: Funciones que se llaman en cliente pero se ejecutan en el servidor) Esta funcion servira
@@ -229,25 +230,27 @@ void UCombatComponent::OnRep_EquippedWeapon()
 	if (EquippedWeapon && Character)
 	{
 		EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
-
-		const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
-		if (HandSocket)
-		{
-			HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());
-		}
-
-
+		AttachActorToRightHand(EquippedWeapon);
 		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 		Character->bUseControllerRotationYaw = true;
+		PlayEquipWeaponSound(EquippedWeapon);
+		EquippedWeapon->EnableCustomDepth(false); //Esto se podria quitar ya que SetWeaponState ya desactiva el customdepth
+		EquippedWeapon->SetHUDAmmo();
 	}
+}
 
-	if (EquippedWeapon->EquipSound)
+
+void UCombatComponent::OnRep_SecondaryWeapon()
+{
+	if (SecondaryWeapon && Character)
 	{
-		UGameplayStatics::PlaySoundAtLocation(
-			this,
-			EquippedWeapon->EquipSound,
-			Character->GetActorLocation()
-		);
+		SecondaryWeapon->SetWeaponState(EWeaponState::EWS_Secondary);
+		AttachActorToBack(SecondaryWeapon);
+		PlayEquipWeaponSound(SecondaryWeapon);
+	}
+	if (!Character->IsLocallyControlled())
+	{
+		SecondaryWeapon->EnableCustomDepth(false);
 	}
 }
 
@@ -372,24 +375,79 @@ void UCombatComponent::PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount)
 	}
 }
 
-
 void UCombatComponent::Fire()
 {
 	if (CanFire())
 	{
 		bCanFire = false;
 
-		ServerFire(HitTarget);
-
 		if (EquippedWeapon)
 		{
 			CrosshairShootingFactor = EquippedWeapon->GetCrosshairShootingSpread(); //Factor que desestabiliza la mira cuando se dispara, depende del propio arma
 			CrosshairShootInterpSpeed = EquippedWeapon->GetCrosshairShootInterpSpeed(); //Velocidad con la que se reajusta el crosshair al disparar, depende del propio arma
+		
+			switch (EquippedWeapon->FireType)
+			{
+			case EFireType::EFT_Projectile:
+				FireProjectileWeapon();
+				break;
+			case EFireType::EFT_HitScan:
+				FireHitScanWeapon();
+				break;
+			case EFireType::EFT_Shotgun:
+				FireShotgun();
+				break;
+			}
+
 		}
 		StartFireTimer();
 	}	
 }
 
+/*
+* Funcion que ejecuta la logica de disparar un arma que usa proyectiles, Logica:
+* 1) Comprobar si usa dispersion y generar el punto aleatorio
+* 2) Generar efectos visuales localmente
+* 3) Mandarla el resultado de la dispersion servidor para que procese el disparo y efectos visuales en el resto de maquinas
+*/
+void UCombatComponent::FireProjectileWeapon()
+{
+	if (EquippedWeapon && Character)
+	{
+		HitTarget = EquippedWeapon->bUseScatter ? EquippedWeapon->TraceEndWithScatter(HitTarget) : HitTarget;
+		LocalFire(HitTarget);	//Llamamos a la maquina local para que cree lo visual mas rapido 
+		ServerFire(HitTarget);	//Llamamos al servidor para que gestione daño
+	}
+}
+
+/*
+* Funcion que ejecuta la logica de disparar un arma con scaterring
+* 1) Generar la dispersion localmente
+* 2) Generar efectos visuales localmente
+* 3) Mandarla el resultado de la dispersion servidor para que procese el disparo y efectos visuales en el resto de maquinas
+*/
+void UCombatComponent::FireHitScanWeapon()
+{
+	if (EquippedWeapon && Character)
+	{
+		HitTarget = EquippedWeapon->bUseScatter ? EquippedWeapon->TraceEndWithScatter(HitTarget) : HitTarget;
+		LocalFire(HitTarget);	//Llamamos a la maquina local para que cree lo visual mas rapido 
+		ServerFire(HitTarget);	//Llamamos al servidor para que gestione daño
+	}
+}
+
+void UCombatComponent::FireShotgun()
+{
+	AShotgun* Shotgun = Cast<AShotgun>(EquippedWeapon);
+	if (Shotgun && Character)
+	{
+		TArray<FVector_NetQuantize> HitTargets;
+		Shotgun->ShotgunTraceEndWithScatter(HitTarget, HitTargets);
+		LocalShotgunFire(HitTargets);
+		ServerShotgunFire(HitTargets);
+	}
+	
+}
 
 void UCombatComponent::StartFireTimer()
 {
@@ -437,7 +495,7 @@ void UCombatComponent::FireTimerFinished()
 bool UCombatComponent::CanFire()
 {
 	if (EquippedWeapon == nullptr) return false;
-
+	if (bLocallyReloading) return false;
 	return !EquippedWeapon->IsEmpty() && bCanFire && CombatState == ECombatState::ECS_Unoccupied;
 }
 
@@ -479,9 +537,37 @@ void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& Trac
 }
 
 /*
-* Broadcast que se hace desde el servidor hacia los clientes y el propio servidor
+* Broadcast que se hace desde el servidor hacia a todas las maquinas
 */
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
+{
+	//Solo entra al if si eres la maquina que controla el pawn localmente, por lo que no tienes que ejecutar este codigo
+	//Ya que lo has ejecutado anteriormente en Fire()->LocalFire(). Primero se ejecuta en local para evitar notar el lag en los efectos del disparo, aunque lo notaras al matar a alguien
+	//Ya que eso si está gestionado unicamante por el servidor.
+	if (Character && Character->IsLocallyControlled()) return;
+
+	LocalFire(TraceHitTarget);
+}
+
+void UCombatComponent::ServerShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets)
+{
+	MulticastShotgunFire(TraceHitTargets);
+}
+
+/*
+* Broadcast del disparo de una escopeta
+*/
+void UCombatComponent::MulticastShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets)
+{
+	//Si eres la maquina controladora del character dueño de la escopeta, te saltas la funcion porque este codigo ya ha sido ejecutado en local
+	if (Character && Character->IsLocallyControlled()) return;
+	LocalShotgunFire(TraceHitTargets);
+}
+
+/*
+* Funcion que ejecuta la logica de disparar en local para que la experiencia sea mas fluida
+*/
+void UCombatComponent::LocalFire(const FVector_NetQuantize& TraceHitTarget)
 {
 	if (EquippedWeapon == nullptr) return;
 
@@ -489,6 +575,20 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 	{
 		Character->PlayFireMontage(bAiming);
 		EquippedWeapon->Fire(TraceHitTarget);
+	}
+}
+
+void UCombatComponent::LocalShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets)
+{
+	if (EquippedWeapon == nullptr) return;
+	AShotgun* Shotgun = Cast<AShotgun>(EquippedWeapon);
+
+	if(Shotgun == nullptr || Character == nullptr) return;
+
+	if (CombatState == ECombatState::ECS_Unoccupied)
+	{
+		Character->PlayFireMontage(bAiming);
+		Shotgun->FireShotgun(TraceHitTargets);
 	}
 }
 
@@ -530,7 +630,44 @@ void UCombatComponent::DeathFire()
 void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 {
 	if (Character == nullptr || WeaponToEquip == nullptr) return;
-	
+	if (CombatState != ECombatState::ECS_Unoccupied) return;
+
+	if (EquippedWeapon != nullptr && SecondaryWeapon == nullptr)
+	{
+		EquipSecondaryWeapon(WeaponToEquip);
+	}
+	else
+	{
+		EquipPrimaryWeapon(WeaponToEquip);
+	}
+
+	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
+	Character->bUseControllerRotationYaw = true;
+
+}
+
+/*
+* Funcion que intercambia armas, principal con secundaria y viceversa
+* Al sobreescribir una variable con otra, se guarda una cualquiera en una variable temporal para poder hacer el intercambio
+*/
+void UCombatComponent::SwapWeapon()
+{
+	if (CombatState != ECombatState::ECS_Unoccupied || Character == nullptr) return;
+
+	Character->PlaySwapMontage();
+	Character->bFinishedSwapping = false;
+	CombatState = ECombatState::ECS_SwappingWeapon; //Al cambiar el valor de CombatState se ejecuta OnRep_CombatState
+
+	AMasterWeapon* TempWeapon = EquippedWeapon;
+	EquippedWeapon = SecondaryWeapon;
+	SecondaryWeapon = TempWeapon;
+
+}
+
+void UCombatComponent::EquipPrimaryWeapon(AMasterWeapon* WeaponToEquip)
+{
+	if (WeaponToEquip == nullptr) return;
+
 	//Si ya tenemos un arma la tiramos
 	if (EquippedWeapon)
 	{
@@ -539,6 +676,86 @@ void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 
 	EquippedWeapon = WeaponToEquip;
 	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+	AttachActorToRightHand(EquippedWeapon);
+	EquippedWeapon->SetOwner(Character);	//Asignamos el character como dueño de la pistola
+	EquippedWeapon->SetHUDAmmo();			//Imprimimos por HUD la municion del arma
+	UpdateCarriedAmmo();					//Imprimimos por HUD la municion del character de ese arma
+	PlayEquipWeaponSound(WeaponToEquip);
+}
+
+void UCombatComponent::EquipSecondaryWeapon(AMasterWeapon* WeaponToEquip)
+{
+	if (WeaponToEquip == nullptr) return;
+
+	SecondaryWeapon = WeaponToEquip;
+	SecondaryWeapon->SetWeaponState(EWeaponState::EWS_Secondary);
+	AttachActorToBack(WeaponToEquip);
+	SecondaryWeapon->SetOwner(Character);
+	PlayEquipWeaponSound(WeaponToEquip);
+
+	//Si el server(quien ejecuta esta funcion) no es el dueño, set del outline a false (lo tiene otro jugador en la espalda)
+	if (!Character->IsLocallyControlled())
+	{
+		SecondaryWeapon->EnableCustomDepth(false);
+	}
+}
+
+void UCombatComponent::OnRep_Aiming()
+{
+	if (Character && Character->IsLocallyControlled())
+	{
+		bAiming = bAimButtonPressed;
+	}
+}
+
+
+void UCombatComponent::Reload()
+{
+	if (CarriedAmmo > 0 && CombatState != ECombatState::ECS_Reloading && !bLocallyReloading)
+	{
+		ServerReload();	//Se ejecuta la recarga en el servidor para propagarlo en el resto de clientes
+		HandleReload(); //Se ejecuta localmente para no esperar que el servidor lo propague al resto de clientes (mejora la experiencia si el que recarga tiene lag)
+		bLocallyReloading = true;
+	}
+}
+
+void UCombatComponent::PlayEquipWeaponSound(AMasterWeapon* WeaponToEquip)
+{
+	if (Character && WeaponToEquip && WeaponToEquip->EquipSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			WeaponToEquip->EquipSound,
+			Character->GetActorLocation()
+		);
+	}
+}
+
+void UCombatComponent::HandleReload()
+{
+	if (Character)
+	{
+		Character->PlayReloadMontage();
+	}
+}
+
+/*
+* Function that attach the actor given by param to the back of the character using the socket "BackSocket"
+*/
+void UCombatComponent::AttachActorToBack(AActor* ActorToAttach)
+{
+	if (Character == nullptr || Character->GetMesh() == nullptr || ActorToAttach == nullptr) return;
+
+	const USkeletalMeshSocket* BackSocket = Character->GetMesh()->GetSocketByName(FName("BackSocket"));
+	if (BackSocket)
+	{
+		BackSocket->AttachActor(ActorToAttach, Character->GetMesh());
+	}
+}
+
+void UCombatComponent::AttachActorToRightHand(AActor* ActorToAttach)
+{
+	if (Character == nullptr || Character->GetMesh() == nullptr || ActorToAttach == nullptr || EquippedWeapon == nullptr) return;
 
 	const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
 
@@ -546,13 +763,12 @@ void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 	{
 		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());
 	}
+}
 
-	EquippedWeapon->SetOwner(Character);	//Asignamos el character como dueño de la pistola
-	EquippedWeapon->SetHUDAmmo();			//Imprimimos por HUD la municion del arma
-
-
-
-	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType())) //Comprobamos si en nuestro Map de municiones existe la Key del arma que tenemos
+void UCombatComponent::UpdateCarriedAmmo()
+{
+	if (EquippedWeapon == nullptr) return;
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))	 //Comprobamos si en nuestro Map de municiones existe la Key del arma que tenemos
 	{
 		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];	//Si existe, obtenemos el valor de esa key para asignarsela a la municion del character
 	}
@@ -560,52 +776,10 @@ void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 	Controller = Controller == nullptr ? Cast<AShooterPlayerController>(Character->Controller) : Controller;
 	if (Controller)
 	{
-
-		Controller->SetHUDCarriedAmmo(CarriedAmmo); //Imprimimos por HUD la municion que tiene el character
-													//Aunque esto se ejecute en el servidor OnRep_CarriedAmmo tiene el mismo codigo.
-
-		Controller->SetHUDWeaponType(EquippedWeapon->GetWeaponType());
-	}
-
-	if (EquippedWeapon->EquipSound)
-	{
-		UGameplayStatics::PlaySoundAtLocation(
-			this,
-			EquippedWeapon->EquipSound,
-			Character->GetActorLocation()
-		);
-	}
-
-	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
-	Character->bUseControllerRotationYaw = true;
-}
-
-void UCombatComponent::Reload()
-{
-	if (CarriedAmmo > 0 && CombatState != ECombatState::ECS_Reloading)
-	{
-		ServerReload();
-	}
-}
-
-void UCombatComponent::HandleReload()
-{
-
-	Character->PlayReloadMontage();
-}
-
-void UCombatComponent::UpdateCarriedAmmo()
-{
-	if (EquippedWeapon == nullptr) return;
-	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
-	{
-		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
-	}
-
-	Controller = Controller == nullptr ? Cast<AShooterPlayerController>(Character->Controller) : Controller;
-	if (Controller)
-	{
-		Controller->SetHUDCarriedAmmo(CarriedAmmo);
+		Controller->SetHUDCarriedAmmo(CarriedAmmo);//Imprimimos por HUD la municion que tiene el character
+		//Aunque esto se ejecute en el servidor OnRep_CarriedAmmo tiene el mismo codigo.
+		
+		Controller->SetHUDWeaponType(EquippedWeapon->GetWeaponType());	//Imprimimos por HUD el arma que tiene el character
 	}
 }
 
@@ -637,13 +811,18 @@ void UCombatComponent::ServerReload_Implementation()
 {
 	if (Character == nullptr) return;
 
-	CombatState = ECombatState::ECS_Reloading;
-	HandleReload();
+	CombatState = ECombatState::ECS_Reloading;				//Al cambiar CombatState se ejecuta OnRep_CombatState, por lo que hay codigo en esa funcion
+															//para evitar que se ejecute HandleReload() de nuevo.
+
+	if(!Character->IsLocallyControlled()) HandleReload();	//Si eres el servidor ya recargaste localmente
 }
 
 void UCombatComponent::FinishReloading()
 {
 	if (Character == nullptr) return;
+
+	bLocallyReloading = false;
+
 	if (Character->HasAuthority())
 	{
 		CombatState = ECombatState::ECS_Unoccupied;
@@ -655,19 +834,60 @@ void UCombatComponent::FinishReloading()
 	}
 }
 
+void UCombatComponent::FinishSwap()
+{
+	if (Character && Character->HasAuthority())
+	{
+		CombatState = ECombatState::ECS_Unoccupied;
+	}
+	if (Character) Character->bFinishedSwapping = true;
+}
+
+void UCombatComponent::FinishSwapAttachWeapons()
+{
+	//Logica de cambiar outlines antes de reasignar variables (Equipped->Seconday & Secondary->Equipped)
+	if (Character->IsLocallyControlled())
+	{
+		SecondaryWeapon->GetWeaponMesh()->SetCustomDepthStencilValue(CUSTOM_DEPTH_TAN);
+		SecondaryWeapon->GetWeaponMesh()->MarkRenderStateDirty();
+		SecondaryWeapon->EnableCustomDepth(true);
+
+		EquippedWeapon->EnableCustomDepth(false);
+	}
+
+	//Pasos necesarios al pasar de Secondary a Equipped
+	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+	AttachActorToRightHand(EquippedWeapon);
+	EquippedWeapon->SetHUDAmmo();
+	UpdateCarriedAmmo();
+	PlayEquipWeaponSound(EquippedWeapon);
+
+	//Pasos necesarios al pasar de Equipped a Secondary
+	SecondaryWeapon->SetWeaponState(EWeaponState::EWS_Secondary);
+	AttachActorToBack(SecondaryWeapon);
+
+}
+
 //Funcion que se ejecuta en todos los clientes -->DOREPLIFETIME(...); cuando cambia la variable CombatState
 void UCombatComponent::OnRep_CombatState()
 {
 	switch (CombatState)
 	{
 	case ECombatState::ECS_Reloading:
-		HandleReload();
+		if(Character && !Character->IsLocallyControlled()) HandleReload(); //We already played it locally on Reload()
 		break;
 
 	case ECombatState::ECS_Unoccupied:
 		if (bFireButtonPressed)
 		{
 			Fire();
+		}
+		break;
+
+	case ECombatState::ECS_SwappingWeapon:
+		if (Character && !Character->IsLocallyControlled()) //Ya recargamos localmente en ShooterCharacter.cpp
+		{
+			Character->PlaySwapMontage();
 		}
 		break;
 	}
@@ -700,4 +920,14 @@ void UCombatComponent::UpdateAmmoValues()
 
 	EquippedWeapon->AddAmmo(ReloadAmount);	//Añadimos la municion al arma
 
+}
+
+bool UCombatComponent::ShouldSwapWeapons()
+{
+	return (EquippedWeapon != nullptr && SecondaryWeapon != nullptr);
+}
+
+ECombatState UCombatComponent::GetCombatState()
+{
+	return CombatState;
 }

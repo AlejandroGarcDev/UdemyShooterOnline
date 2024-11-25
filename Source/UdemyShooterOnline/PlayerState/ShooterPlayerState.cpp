@@ -87,7 +87,7 @@ void AShooterPlayerState::OnRep_Score()
 
 		if (Controller)
 		{
-			Controller->SetHUDScore(Score);
+			Controller->SetHUDScore(GetScore());
 		}
 	}
 }

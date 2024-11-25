@@ -12,9 +12,22 @@ enum class EWeaponState : uint8
 {
 	EWS_Initial UMETA(DisplayName="Initial State"),
 	EWS_Equipped UMETA(DisplayName = "Equipped"),
+	EWS_Secondary UMETA(DisplayName = "Secondary"),
 	EWS_Dropped UMETA(DisplayName = "Dropped"),
 	EWS_MAX UMETA(DisplayName = "DefaultMAX") //Indica el numero de states
 };
+
+UENUM(BlueprintType)
+enum class EFireType : uint8
+{
+	EFT_HitScan UMETA(DisplayName = "Hit Scan Weapon"),
+	EFT_Projectile UMETA(DisplayName = "Projectile Weapon"),
+	EFT_Shotgun UMETA(DisplayName = "Shotgun Weapon"),
+
+	EFT_MAX UMETA(DisplayName = "DefaultMAX")
+
+};
+
 
 UCLASS()
 class UDEMYSHOOTERONLINE_API AMasterWeapon : public AActor
@@ -42,6 +55,8 @@ public:
 	void Dropped();
 
 	void AddAmmo(int32 AmmoToAdd);
+
+	FVector TraceEndWithScatter(const FVector& HitTarget);
 
 	/*
 	* Textures for the weapon crosshairs
@@ -121,9 +136,25 @@ public:
 
 	void EnableCustomDepth(bool bEnable);
 
+	bool bDestroyWeapon = false;
+
+	UPROPERTY(EditAnywhere)
+	EFireType FireType;
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	bool bUseScatter = false;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	virtual void OnWeaponStateSet();
+
+	virtual void OnEquipped();
+
+	virtual void OnEquippedSecondary();
+
+	virtual void OnDropped();
 
 	//Esta funcion es la que nos indicara cuando el jugador esta dentro del area del arma para recogerla
 	//Los parametros de entrada vienen dados por el padre AActor
@@ -144,6 +175,33 @@ protected:
 		UPrimitiveComponent* OtherComp,
 		int32 OtherBodyIndex
 	);
+
+	/*
+	* Variables para la funcion "TraceEndWithScatter"
+	*/
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	float DistanceToSphere = 800.f;
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	float SphereRadius = 75.f;
+
+	UPROPERTY(EditAnywhere)
+	float Damage = 20.f;
+
+	UPROPERTY(EditAnywhere)
+	float HeadShotDamage = 40.f;
+
+	UPROPERTY(Replicated, EditAnywhere)
+	bool bUseServerSideRewind = false;
+
+	UPROPERTY()
+	class AShooterCharacter* ShooterOwnerCharacter;
+
+	UPROPERTY()
+	class AShooterPlayerController* ShooterOwnerController;
+
+	UFUNCTION() //Importante que tenga UFUNCTION porque esta funcion se bindea con un delegate, si no, no se bindeara correctamente
+	void OnPingTooHigh(bool bPingTooHigh);
 
 private:
 
@@ -168,22 +226,23 @@ private:
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<class ACasing> CasingClass;
 
-	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_Ammo)
+	UPROPERTY(EditAnywhere)
 	int32 Ammo;
 
-	UFUNCTION()
-	void OnRep_Ammo();
+	UFUNCTION(Client, Reliable)
+	void ClientUpdateAmmo(uint32 ServerAmmo);
+
+	UFUNCTION(Client, Reliable)
+	void ClientAddAmmo(uint32 AmmoToAdd);
 
 	void SpendRound();
 
 	UPROPERTY(EditAnywhere)
 	int32 MagCapacity;
 	
-	UPROPERTY()
-	class AShooterCharacter* ShooterOwnerCharacter;
-
-	UPROPERTY()
-	class AShooterPlayerController* ShooterOwnerController;
+	//The number of unprocessed server requests for Ammo
+	//Incremented in SpendRound, decremented in ClientUpdateAmmo.
+	int32 Sequence = 0;
 
 	UPROPERTY(EditAnywhere)
 	EWeaponType WeaponType;
@@ -193,22 +252,17 @@ public:
 	void SetWeaponState(EWeaponState State);
 
 	FORCEINLINE USphereComponent* GetAreaSphere() const { return AreaSphere; }
-
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return WeaponMesh; }
-
 	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
-
 	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
-
 	FORCEINLINE float GetCrosshairShootingSpread() const { return CrosshairShootingSpread; }
-
 	FORCEINLINE float GetCrosshairShootInterpSpeed() const { return CrosshairShootInterpSpeed; }
 
 	bool IsEmpty();
 
 	FORCEINLINE EWeaponType GetWeaponType()const { return WeaponType; }
-
 	FORCEINLINE int32 GetAmmo()const { return Ammo; }
-
 	FORCEINLINE int32 GetMagCapacity() const { return MagCapacity; }
+	FORCEINLINE float GetDamage() const { return Damage; }
+	FORCEINLINE float GetHeadShotDamage() const { return HeadShotDamage; }
 };

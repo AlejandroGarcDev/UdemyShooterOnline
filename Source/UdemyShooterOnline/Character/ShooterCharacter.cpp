@@ -22,6 +22,13 @@
 #include "Misc/App.h"
 #include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
 #include "UdemyShooterOnline/Weapon/WeaponTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "Components/BoxComponent.h"
+#include "UdemyShooterOnline/ShooterComponents/LagCompensationComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "UdemyShooterOnline/GameState/ShooterGameState.h"
+
 
 // Sets default values
 AShooterCharacter::AShooterCharacter()
@@ -50,6 +57,9 @@ AShooterCharacter::AShooterCharacter()
 	BuffComponent = CreateDefaultSubobject<UBuffComponent>(TEXT("BuffComponent"));
 	BuffComponent->SetIsReplicated(true);
 
+	LagCompensation = CreateDefaultSubobject<ULagCompensationComponent>(TEXT("LagCompensation"));
+
+
 	//If true, pawn is capable of crouching
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
@@ -61,6 +71,87 @@ AShooterCharacter::AShooterCharacter()
 
 	NetUpdateFrequency = 66.0f;		//Cuantas veces por segundo se actualiza el personaje en el servidor
 	MinNetUpdateFrequency = 33.0f;  //Cuantas veces como minimo se actualiza el personaje si hay restriccion de ancho de banda
+
+	/**
+	*	Hit boxes for server-side rewind
+	*/
+
+	head = CreateDefaultSubobject<UBoxComponent>(TEXT("head"));
+	head->SetupAttachment(GetMesh(), FName("head"));
+	HitCollisionBoxes.Add(FName("head"), head);
+
+	pelvis = CreateDefaultSubobject<UBoxComponent>(TEXT("pelvis"));
+	pelvis->SetupAttachment(GetMesh(), FName("pelvis"));
+	HitCollisionBoxes.Add(FName("pelvis"), pelvis);
+
+	spine_02 = CreateDefaultSubobject<UBoxComponent>(TEXT("spine_02"));
+	spine_02->SetupAttachment(GetMesh(), FName("spine_02"));
+	HitCollisionBoxes.Add(FName("spine_02"), spine_02);
+
+	spine_03 = CreateDefaultSubobject<UBoxComponent>(TEXT("spine_03"));
+	spine_03->SetupAttachment(GetMesh(), FName("spine_03"));
+	HitCollisionBoxes.Add(FName("spine_03"), spine_03);
+
+	upperarm_l = CreateDefaultSubobject<UBoxComponent>(TEXT("upperarm_l"));
+	upperarm_l->SetupAttachment(GetMesh(), FName("upperarm_l"));
+	HitCollisionBoxes.Add(FName("upperarm_l"), upperarm_l);
+
+	upperarm_r = CreateDefaultSubobject<UBoxComponent>(TEXT("upperarm_r"));
+	upperarm_r->SetupAttachment(GetMesh(), FName("upperarm_r"));
+	HitCollisionBoxes.Add(FName("upperarm_r"), upperarm_r);
+
+	lowerarm_r = CreateDefaultSubobject<UBoxComponent>(TEXT("lowerarm_r"));
+	lowerarm_r->SetupAttachment(GetMesh(), FName("lowerarm_r"));
+	HitCollisionBoxes.Add(FName("lowerarm_r"), lowerarm_r);
+
+	lowerarm_l = CreateDefaultSubobject<UBoxComponent>(TEXT("lowerarm_l"));
+	lowerarm_l->SetupAttachment(GetMesh(), FName("lowerarm_l"));
+	HitCollisionBoxes.Add(FName("lowerarm_l"), lowerarm_l);
+
+	hand_r = CreateDefaultSubobject<UBoxComponent>(TEXT("hand_r"));
+	hand_r->SetupAttachment(GetMesh(), FName("hand_r"));
+	HitCollisionBoxes.Add(FName("hand_r"), hand_r);
+
+	hand_l = CreateDefaultSubobject<UBoxComponent>(TEXT("hand_l"));
+	hand_l->SetupAttachment(GetMesh(), FName("hand_l"));
+	HitCollisionBoxes.Add(FName("hand_l"), hand_l);
+
+	thigh_r = CreateDefaultSubobject<UBoxComponent>(TEXT("thigh_r"));
+	thigh_r->SetupAttachment(GetMesh(), FName("thigh_r"));
+	thigh_r->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HitCollisionBoxes.Add(FName("thigh_r"), thigh_r);
+
+	thigh_l = CreateDefaultSubobject<UBoxComponent>(TEXT("thigh_l"));
+	thigh_l->SetupAttachment(GetMesh(), FName("thigh_l"));
+	HitCollisionBoxes.Add(FName("thigh_l"), thigh_l);
+
+	calf_r = CreateDefaultSubobject<UBoxComponent>(TEXT("calf_r"));
+	calf_r->SetupAttachment(GetMesh(), FName("calf_r"));
+	HitCollisionBoxes.Add(FName("calf_r"), calf_r);
+
+	calf_l = CreateDefaultSubobject<UBoxComponent>(TEXT("calf_l"));
+	calf_l->SetupAttachment(GetMesh(), FName("calf_l"));
+	HitCollisionBoxes.Add(FName("calf_l"), calf_l);
+
+	foot_r = CreateDefaultSubobject<UBoxComponent>(TEXT("foot_r"));
+	foot_r->SetupAttachment(GetMesh(), FName("foot_r"));
+	HitCollisionBoxes.Add(FName("foot_r"), foot_r);
+
+	foot_l = CreateDefaultSubobject<UBoxComponent>(TEXT("foot_l"));
+	foot_l->SetupAttachment(GetMesh(), FName("foot_l"));
+	HitCollisionBoxes.Add(FName("foot_l"), foot_l);
+
+	for (auto Box : HitCollisionBoxes)
+	{
+		if (Box.Value)
+		{
+			Box.Value->SetCollisionObjectType(ECC_HitBox);
+			Box.Value->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+			Box.Value->SetCollisionResponseToChannel(ECC_HitBox, ECollisionResponse::ECR_Block);
+			Box.Value->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+	}
+
 }
 
 void AShooterCharacter::Reset()
@@ -73,10 +164,42 @@ void AShooterCharacter::Reset()
 	Super::Reset();
 }
 
+void AShooterCharacter::MulticastGainedTheLead_Implementation()
+{
+	if (CrownSystem == nullptr) return;
+	if (CrownComponent == nullptr)
+	{
+		CrownComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+			CrownSystem,
+			GetCapsuleComponent(),
+			FName(),
+			GetActorLocation() + FVector(0.f, 0.f, 110.f),
+			GetActorRotation(),
+			EAttachLocation::KeepWorldPosition,
+			false
+		);
+	}
+	if (CrownComponent)
+	{
+		CrownComponent->Activate();
+	}
+}
+
+void AShooterCharacter::MulticastLostTheLead_Implementation()
+{
+	if (CrownComponent)
+	{
+		CrownComponent->DestroyComponent();
+	}
+}
+
 // Called when the game starts or when spawned
 void AShooterCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	SpawnDefaultWeapon();
+	UpdateHUDAmmo();
 
 	if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
 	{
@@ -88,11 +211,13 @@ void AShooterCharacter::BeginPlay()
 	}
 
 	UpdateHUDHealth();
+	UpdateHUDShield();
 
 	if (HasAuthority())	//Solo entra el servidor en este if
 	{
 		OnTakeAnyDamage.AddDynamic(this, &AShooterCharacter::ReceiveDamage); //Se bindea los eventos de recibir daño de esta clase a la funcion ReceiveDamg
 	}
+
 }
 
 // Called every frame
@@ -161,7 +286,10 @@ void AShooterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	//Nota: Esta funcion es llamada cuando se utiliza el setter en el .h ya que al cambiar la variable overlapping esta funcion se ejecuta
 	//ya que es una funcion inherente debido al replicamiento
 	DOREPLIFETIME_CONDITION(AShooterCharacter, OverlappingWeapon, COND_OwnerOnly);
+
 	DOREPLIFETIME(AShooterCharacter, Health);
+	DOREPLIFETIME(AShooterCharacter, Shield);
+
 	DOREPLIFETIME(AShooterCharacter, bDisableGameplay);
 }
 
@@ -176,22 +304,15 @@ void AShooterCharacter::OnRep_ReplicatedMovement()
 * Funcion que se llama desde el game mode, por lo tanto solo se llama en el servidor (Gamemode solo existe en el servidor)
 * En esta funcion estan las operaciones que necesita el servidor cuando se elimina un jugador y un multicast de la animacion de muerte para todos los clientes
 */
-void AShooterCharacter::Elim()
+void AShooterCharacter::Elim(bool bPlayerLeftGame)
 {
-	MulticastElim();
-
-	GetWorldTimerManager().SetTimer(
-		ElimTimer,									//Parametro1: FTimerHandle
-		this,										//Parametro2: Objeto que activa el timer (Esto se llama en el servidor)
-		&AShooterCharacter::ElimTimerFinished,		//Parametro3: Funcion que se activa al acabar el timer
-		ElimDelay,									//Parametro4: Tiempo
-		false,										//Parametro5: Loop
-		-1.0f										//Parametro6: Delay en el primer Loop
-	);
+	MulticastElim(bPlayerLeftGame);
 }
 
-void AShooterCharacter::MulticastElim_Implementation()
+void AShooterCharacter::MulticastElim_Implementation(bool bPlayerLeftGame)
 {
+	bLeftGame = bPlayerLeftGame;
+
 	//Seteamos la variable Ammo del HUD del jugador en 0 para resetearlo, ya que al morir pierde el arma
 	if (ShooterPlayerController)
 	{
@@ -222,6 +343,7 @@ void AShooterCharacter::MulticastElim_Implementation()
 	//Deshabilitamos colisiones **IMPORTANTE: no se deshabilitan las de la malla (GetMesh()) porque se simulan fisicas de caida**
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	//Si muere apuntando con el franco se esconde el HUD del franco
 	bool bHideSniperScope = IsLocallyControlled() &&
 		Combat &&
 		Combat->bAiming &&
@@ -232,19 +354,79 @@ void AShooterCharacter::MulticastElim_Implementation()
 	{
 		ShowSniperScopeWidget(false);
 	}
+
+	if (CrownComponent)
+	{
+		CrownComponent->DestroyComponent();
+	}
+
+	GetWorldTimerManager().SetTimer(
+		ElimTimer,									//Parametro1: FTimerHandle
+		this,										//Parametro2: Objeto que activa el timer (Esto se llama en el servidor)
+		&AShooterCharacter::ElimTimerFinished,		//Parametro3: Funcion que se activa al acabar el timer
+		ElimDelay,									//Parametro4: Tiempo
+		false,										//Parametro5: Loop
+		-1.0f										//Parametro6: Delay en el primer Loop
+	);
+
 }
 
 /*
-* Funcion que se llama desde Elim()
+* Funcion que se llama desde Elim(), esta funcion se llama cuando ya ha pasado el tiempo de la muerte y se requiere que reaparezca el character
 */
 void AShooterCharacter::ElimTimerFinished()
 {
+	if (Combat)
+	{
+		if (Combat->EquippedWeapon)
+		{
+			DropOrDestroyWeapon(Combat->EquippedWeapon);
+		}
+		if (Combat->SecondaryWeapon)
+		{
+			DropOrDestroyWeapon(Combat->SecondaryWeapon);
+		}
+	}
+
 	AShooterGameMode* ShooterGameMode = GetWorld()->GetAuthGameMode<AShooterGameMode>();
-	if (ShooterGameMode)
+	if (ShooterGameMode && !bLeftGame)
 	{
 		ShooterGameMode->RequestRespawn(this, Controller);
 	}
+	if (bLeftGame && IsLocallyControlled())
+	{
+		OnLeftGame.Broadcast();
+	}
 }
+
+void AShooterCharacter::ServerLeaveGame_Implementation()
+{
+	AShooterGameMode* ShooterGameMode = GetWorld()->GetAuthGameMode<AShooterGameMode>();
+	ShooterPlayerState = ShooterPlayerState == nullptr ? GetPlayerState<AShooterPlayerState>() : ShooterPlayerState;
+	if (ShooterGameMode && ShooterPlayerState)
+	{
+		ShooterGameMode->PlayerLeftGame(ShooterPlayerState);
+	}
+}
+
+/*
+* Funcion que comprueba si un arma es inicial o es cogida durante el gameplay, segun el caso se destruye o no el arma
+* Esta funcion se llama al finalizar el tiempo de muerte, es decir, cuando desaparece el character tras morir (ElimTimerFinished)
+*/
+void AShooterCharacter::DropOrDestroyWeapon(AMasterWeapon* Weapon)
+{
+	if (Weapon == nullptr) return;
+
+	if (Weapon->bDestroyWeapon)
+	{
+		Weapon->Destroy();
+	}
+	else
+	{
+		Weapon->Dropped();
+	}
+}
+
 
 // Called to bind functionality to input
 void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -303,6 +485,15 @@ void AShooterCharacter::PostInitializeComponents()
 		BuffComponent->SetInitialJumpVelocity(
 			GetCharacterMovement()->JumpZVelocity
 		);
+	}
+	if (LagCompensation)
+	{
+		LagCompensation->Character = this;
+
+		if (Controller)
+		{
+			LagCompensation->Controller = Cast<AShooterPlayerController>(Controller);
+		}
 	}
 }
 
@@ -374,6 +565,15 @@ void AShooterCharacter::PlayReloadMontage()
 	}
 }
 
+void AShooterCharacter::PlaySwapMontage()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && SwapMontage)
+	{
+		AnimInstance->Montage_Play(SwapMontage);
+	}
+}
+
 void AShooterCharacter::PlayHitReactMontage()
 {
 	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
@@ -400,6 +600,8 @@ void AShooterCharacter::PlayElimMontage()
 
 void AShooterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
 {
+	if (bElimmed) return;
+
 	/*
 	* Esto se ejecuta en el servidor (Ver BeginPlay)
 	* Sin embargo, como Health es una variable replicada:
@@ -412,12 +614,23 @@ void AShooterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const 
 	* Este metodo es mejor que hacer un multicast RPC (NetMulticast Unreal)
 	*/
 
-	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth); 
+	float DamageRemainder = Damage;
+	float LastShield = Shield;
 
-	UE_LOG(LogTemp, Warning, TEXT("%f"), Health);
+	Shield = FMath::Clamp(Shield - DamageRemainder, 0.f, MaxShield);
+
+	DamageRemainder = DamageRemainder + Shield - LastShield; //El daño sobrante es el daño total - la diferencia de escudo quitado
+	
+	if (DamageRemainder > 0.f)
+	{
+		Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+	}
 
 	PlayHitReactMontage();
+
+	UpdateHUDShield();
 	UpdateHUDHealth();
+
 
 	if (Health == 0.0f)
 	{
@@ -463,6 +676,13 @@ void AShooterCharacter::PollInit()
 		{
 			ShooterPlayerState->AddToScore(0.f); //Una vez tenemos PlayerState actualizamos la puntuacion en pantalla
 			ShooterPlayerState->AddToDefeats(0);
+
+			//Comprobamos si necesitamos la corona (en caso de ser los primeros de la partida)
+			AShooterGameState* ShooterGameState = Cast<AShooterGameState>(UGameplayStatics::GetGameState(this));
+			if (ShooterGameState && ShooterGameState->TopScoringPlayers.Contains(ShooterPlayerState))
+			{
+				MulticastGainedTheLead();
+			}
 		}
 	}
 }
@@ -504,23 +724,51 @@ void AShooterCharacter::Jump()
 
 void AShooterCharacter::EquipButtonPressed()
 {
-
 	if(bDisableGameplay) return;
+	if (Combat)
+	{		
+		//A nivel cosmetico local, se puede ejecutar sin llamar al servidor 
+		if (IsLocallyControlled())
+		{
+			//Donde unico se activa algo a nivel local al recoger un arma, es cuando no hay secundaria, por lo que es lo unico que comprobamos.
+			//(Si hay arma secundaria, se cambia el arma del suelo con la principal y no se activa el outline blanco)
+			if (OverlappingWeapon && Combat->SecondaryWeapon == nullptr)
+			{
+				OverlappingWeapon->GetWeaponMesh()->SetCustomDepthStencilValue(CUSTOM_DEPTH_TAN);
+				OverlappingWeapon->GetWeaponMesh()->MarkRenderStateDirty();
+				OverlappingWeapon->EnableCustomDepth(true);
+			}
+			else if (OverlappingWeapon == nullptr && !HasAuthority() && Combat->ShouldSwapWeapons() && Combat->CombatState == ECombatState::ECS_Unoccupied)
+			{
+				//Este codigo se ejecuta en ServerEquipButtonPressed, por lo que para que no se ejecute 2 veces se hace la comprobacion de !HasAuthority
+				PlaySwapMontage();
+				Combat->CombatState = ECombatState::ECS_SwappingWeapon;
+				bFinishedSwapping = false;
 
+				/*
+				* La logica de outline al swapear armas está dentro del montage (Combat->FinishSwapAttach)
+				*/
+			}
+		}
+		
+		//A nivel de seguridad, solo el servidor puede asignar armar a los personajes
+		ServerEquipButtonPressed();
+	}
+}
+
+void AShooterCharacter::ServerEquipButtonPressed_Implementation()
+{
 	if (Combat)
 	{
-		if (HasAuthority())
+		if (OverlappingWeapon)
 		{
 			Combat->EquipWeapon(OverlappingWeapon);
 		}
-		else
+		else if (Combat->ShouldSwapWeapons())
 		{
-			ServerEquipButtonPressed();
+			Combat->SwapWeapon();
 		}
-		
 	}
-
-
 }
 
 //Esta funcion se activara cuando haya un cambio en la variable "OverlappingWeapon" de acuerdo a la UProperty puesta,
@@ -537,15 +785,6 @@ void AShooterCharacter::OnRep_OverlappingWeapon(AMasterWeapon* LastWeapon)
 		LastWeapon->ShowPickupWidget(false);
 	}
 }
-
-void AShooterCharacter::ServerEquipButtonPressed_Implementation()
-{
-	if (Combat)
-	{
-		Combat->EquipWeapon(OverlappingWeapon);
-	}
-}
-
 void AShooterCharacter::CrouchButtonPressed()
 {
 	if (bDisableGameplay) return;
@@ -851,6 +1090,17 @@ void AShooterCharacter::OnRep_Health(float LastHealth)
 	}
 }
 
+void AShooterCharacter::OnRep_Shield(float LastShield)
+{
+
+	UpdateHUDShield();
+
+	if (!bElimmed && Shield < LastShield)
+	{
+		PlayHitReactMontage();
+	}
+}
+
 /*
 * Esta funcion llama al controlador y comprueba si es AShooterPlayerController, si lo es, utiliza la funcion actualizar vida del HUD
 */
@@ -861,6 +1111,49 @@ void AShooterCharacter::UpdateHUDHealth()
 	{
 		ShooterPlayerController->SetHUDHealth(Health, MaxHealth);
 	}
+}
+
+/*
+* Esta funcion llama al controlador y comprueba si es AShooterPlayerController, si lo es, utiliza la funcion actualizar escudo del HUD
+*/
+void AShooterCharacter::UpdateHUDShield()
+{
+	ShooterPlayerController = ShooterPlayerController == nullptr ? Cast<AShooterPlayerController>(Controller) : ShooterPlayerController;
+
+	if (ShooterPlayerController)
+	{
+		ShooterPlayerController->SetHUDShield(Shield, MaxShield);
+	}
+}
+
+void AShooterCharacter::UpdateHUDAmmo()
+{
+	ShooterPlayerController = ShooterPlayerController == nullptr ? Cast<AShooterPlayerController>(Controller) : ShooterPlayerController;
+
+	if (ShooterPlayerController && Combat && Combat->EquippedWeapon)
+	{
+		ShooterPlayerController->SetHUDCarriedAmmo(Combat->CarriedAmmo);
+		ShooterPlayerController->SetHUDWeaponAmmo(Combat->EquippedWeapon->GetAmmo());
+	}
+}
+
+/*
+* Funcion que equipa el arma por defecto al entrar en la partida (se identifica partida porque el game mode es unico)
+*/
+void AShooterCharacter::SpawnDefaultWeapon()
+{
+	AShooterGameMode* ShooterGameMode = Cast<AShooterGameMode>(UGameplayStatics::GetGameMode(this));
+	UWorld* World = GetWorld();
+	if (ShooterGameMode  && World && !bElimmed && DefaultWeaponClass)
+	{
+		AMasterWeapon* StartingWeapon = Cast<AMasterWeapon>(World->SpawnActor(DefaultWeaponClass));
+		StartingWeapon->bDestroyWeapon = true; //Variable que sirve para identificar las armas iniciales, estas armas desaparecen si el jugador muere con ellas
+		if (Combat)
+		{
+			Combat->EquipWeapon(StartingWeapon);
+		}
+	}
+
 }
 
 void AShooterCharacter::SetOverlappingWeapon(AMasterWeapon* Weapon)
@@ -914,3 +1207,8 @@ ECombatState AShooterCharacter::GetCombatState() const
 	return Combat->CombatState;
 }
 
+bool AShooterCharacter::IsLocallyReloading()
+{
+	if (Combat == nullptr) return false;
+	return Combat->bLocallyReloading;
+}

@@ -19,6 +19,30 @@ AShooterGameMode::AShooterGameMode()
 	bDelayedStart = true;
 }
 
+
+void AShooterGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+
+	LevelStartingTime = GetWorld()->GetTimeSeconds();
+}
+
+void AShooterGameMode::OnMatchStateSet()
+{
+	Super::OnMatchStateSet();
+
+	//Recorre todos los controladores que existan
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		AShooterPlayerController* ShooterPlayer = Cast<AShooterPlayerController>(*It);
+		if (ShooterPlayer)
+		{
+			ShooterPlayer->OnMatchStateSet(MatchState);
+		}
+	}
+}
+
+
 void AShooterGameMode::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -65,8 +89,36 @@ void AShooterGameMode::PlayerEliminited(AShooterCharacter* ElimmedCharacter, ASh
 
 	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState && GameState)
 	{
+		TArray<AShooterPlayerState*> PlayersCurrentlyInTheLead;
+		for (auto LeadPlayer : ShooterGameState->TopScoringPlayers)
+		{
+			PlayersCurrentlyInTheLead.Add(LeadPlayer);
+		}
+
 		AttackerPlayerState->AddToScore(1.0f);
 		ShooterGameState->UpdateTopScore(AttackerPlayerState); //Actualizamos regristro del ganador de la partida
+
+		if (ShooterGameState->TopScoringPlayers.Contains(AttackerPlayerState)) //Si el atacante entra en TopScorinPlayer, le damos la corona
+		{
+			AShooterCharacter* Leader = Cast<AShooterCharacter>(AttackerPlayerState->GetPawn());
+			if (Leader)
+			{
+				Leader->MulticastGainedTheLead();
+			}
+		}
+
+		for (int32 i = 0; i < PlayersCurrentlyInTheLead.Num(); i++) //Comprobamos si hay algun player que haya perdido el lider (al haber otro player que sume 1 punto, el que iba primero puede haber pasado a segundo)
+		{
+			if (!ShooterGameState->TopScoringPlayers.Contains(PlayersCurrentlyInTheLead[i]))
+			{
+				AShooterCharacter* Loser = Cast<AShooterCharacter>(PlayersCurrentlyInTheLead[i]->GetPawn());
+				if (Loser)
+				{
+					Loser->MulticastLostTheLead();
+				}
+			}
+		}
+
 	}
 
 	if (VictimPlayerState)
@@ -76,7 +128,17 @@ void AShooterGameMode::PlayerEliminited(AShooterCharacter* ElimmedCharacter, ASh
 
 	if (ElimmedCharacter)
 	{
-		ElimmedCharacter->Elim();
+		ElimmedCharacter->Elim(false);
+	}
+
+	//Accedemos a todos los controladores para que cada uno muestre por pantalla que un jugador a matado a otro jugador
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; It++)
+	{
+		AShooterPlayerController* ShooterPlayer = Cast<AShooterPlayerController>(*It);
+		if (ShooterPlayer && AttackerPlayerState && VictimPlayerState)
+		{
+			ShooterPlayer->BroadcastElim(AttackerPlayerState, VictimPlayerState);
+		}
 	}
 }
 
@@ -99,24 +161,20 @@ void AShooterGameMode::RequestRespawn(ACharacter* ElimmedCharacter, AController*
 	}
 }
 
-void AShooterGameMode::BeginPlay()
+
+void AShooterGameMode::PlayerLeftGame(AShooterPlayerState* PlayerLeaving)
 {
-	Super::BeginPlay();
+	if (PlayerLeaving == nullptr) return;
 
-	LevelStartingTime = GetWorld()->GetTimeSeconds();
-}
-
-void AShooterGameMode::OnMatchStateSet()
-{
-	Super::OnMatchStateSet();
-
-	//Recorre todos los controladores que existan
-	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	AShooterGameState* ShooterGameState = GetGameState<AShooterGameState>();
+	if (ShooterGameState && ShooterGameState->TopScoringPlayers.Contains(PlayerLeaving))
 	{
-		AShooterPlayerController* ShooterPlayer = Cast<AShooterPlayerController>(*It);
-		if (ShooterPlayer)
-		{
-			ShooterPlayer->OnMatchStateSet(MatchState);
-		}
+		ShooterGameState->TopScoringPlayers.Remove(PlayerLeaving);
+	}
+
+	AShooterCharacter* CharacterLeaving = Cast<AShooterCharacter>(PlayerLeaving->GetPawn());
+	if (CharacterLeaving)
+	{
+		CharacterLeaving->Elim(true);
 	}
 }

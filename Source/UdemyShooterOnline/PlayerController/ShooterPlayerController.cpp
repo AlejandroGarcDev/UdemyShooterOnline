@@ -3,6 +3,8 @@
 
 #include "ShooterPlayerController.h"
 #include "UdemyShooterOnline/HUD/ShooterHUD.h"
+#include "EnhancedInputSubsystems.h"
+#include "EnhancedInputComponent.h"
 #include "UdemyShooterOnline/HUD/CharacterOverlay.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
@@ -15,6 +17,8 @@
 #include "UdemyShooterOnline/ShooterComponents/CombatComponent.h"
 #include "UdemyShooterOnline/GameState/ShooterGameState.h"
 #include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
+#include "Components/Image.h"
+#include "UdemyShooterOnline/HUD/ReturnToMainMenu.h"
 
 
 void AShooterPlayerController::BeginPlay()
@@ -54,6 +58,78 @@ void AShooterPlayerController::Tick(float DeltaTime)
 	SetHUDTime();
 	CheckTimeSync(DeltaTime);
 	PollInit();
+	CheckPing(DeltaTime);
+
+}
+
+/*
+* Funcion que ejecuta toda la logica de avisar si hay mala conexion
+*/
+void AShooterPlayerController::CheckPing(float DeltaTime)
+{
+	HighPingRunningTime += DeltaTime;
+	if (HighPingRunningTime > CheckPingFrequency)
+	{
+		PlayerState = PlayerState == nullptr ? GetPlayerState<APlayerState>() : PlayerState;
+		if (PlayerState)
+		{
+			//Se multiplica por 4 porque GetPing() comprime el ping dividiendolo por 4
+			if (PlayerState->GetPingInMilliseconds() > HighPingThreshold)
+			{
+				HighPingWarning();
+				PingAnimationRunningTime = 0.f;
+				ServerReportPingStatus(true);
+			}
+			else
+			{
+				ServerReportPingStatus(false);
+			}
+		}
+
+		HighPingRunningTime = 0.f;
+	}
+
+	bool bHighAnimationPlaying = ShooterHUD &&
+		ShooterHUD->CharacterOverlay &&
+		ShooterHUD->CharacterOverlay->HighPingAnimation
+		&& ShooterHUD->CharacterOverlay->IsAnimationPlaying(ShooterHUD->CharacterOverlay->HighPingAnimation);
+
+	if (bHighAnimationPlaying)
+	{
+		PingAnimationRunningTime += DeltaTime;
+
+		if (PingAnimationRunningTime > HighPingDuration)
+		{
+			StopHighPingWarning();
+		}
+	}
+}
+
+void AShooterPlayerController::ShowReturnToMainMenu()
+{
+	if (ReturnToMainMenuWidget == nullptr) return;
+	if (ReturnToMainMenu == nullptr)
+	{
+		ReturnToMainMenu = CreateWidget<UReturnToMainMenu>(this, ReturnToMainMenuWidget);
+	}
+	if (ReturnToMainMenu)
+	{
+		bReturnToMainMenuOpen = !bReturnToMainMenuOpen;
+		if (bReturnToMainMenuOpen)
+		{
+			ReturnToMainMenu->MenutSetup();
+		}
+		else
+		{
+			ReturnToMainMenu->MenuTearDown();
+		}
+	}
+}
+
+//Is the ping too high?
+void AShooterPlayerController::ServerReportPingStatus_Implementation(bool bHighPing)
+{
+	HighPingDelegate.Broadcast(bHighPing);
 }
 
 void AShooterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -62,6 +138,16 @@ void AShooterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 
 	DOREPLIFETIME(AShooterPlayerController, MatchState);
 
+}
+
+void AShooterPlayerController::SetupInputComponent()
+{
+	Super::SetupInputComponent();
+	if (InputComponent == nullptr) return;
+	if (UEnhancedInputComponent* EnhacedInputComponent = CastChecked<UEnhancedInputComponent>(InputComponent))
+	{
+		EnhacedInputComponent->BindAction(QuitAction, ETriggerEvent::Completed, this, &AShooterPlayerController::ShowReturnToMainMenu);
+	}
 }
 
 void AShooterPlayerController::SetHUDHealth(float Health, float MaxHealth)
@@ -78,14 +164,47 @@ void AShooterPlayerController::SetHUDHealth(float Health, float MaxHealth)
 
 		FString HealthText = FString::Printf(TEXT("%d/%d"), FMath::CeilToInt(Health), FMath::CeilToInt(MaxHealth));
 		ShooterHUD->CharacterOverlay->HealthText->SetText(FText::FromString(HealthText));
+
+		bInitializeHealth = false;
+		HUDHealth = 0.f;
+		HUDMaxHealth = 0.f;
+
 	}
 	else
 	{
-		bInitializeCharacterOverlay = true;
+		bInitializeHealth = true;
 		HUDHealth = Health;
 		HUDMaxHealth = MaxHealth;
 	}
 
+}
+
+void AShooterPlayerController::SetHUDShield(float Shield, float MaxShield)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&								//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&				//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->ShieldBar &&  //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		ShooterHUD->CharacterOverlay->ShieldText)
+	{
+		const float ShieldPercent = Shield / MaxShield;
+
+		ShooterHUD->CharacterOverlay->ShieldBar->SetPercent(ShieldPercent);
+
+		FString ShieldText = FString::Printf(TEXT("%d/%d"), FMath::CeilToInt(Shield), FMath::CeilToInt(MaxShield));
+		ShooterHUD->CharacterOverlay->ShieldText->SetText(FText::FromString(ShieldText));
+
+		bInitializeShield = false;
+		HUDShield = 0.f;
+		HUDMaxShield = 0.f;
+	}
+	else
+	{
+		bInitializeShield = true;
+		HUDShield = Shield;
+		HUDMaxShield = MaxShield;
+	}
 }
 
 void AShooterPlayerController::SetHUDScore(float Score)
@@ -99,10 +218,13 @@ void AShooterPlayerController::SetHUDScore(float Score)
 	{
 		FString ScoreText = FString::Printf(TEXT("%d"), FMath::FloorToInt(Score));
 		ShooterHUD->CharacterOverlay->ScoreAmount->SetText(FText::FromString(ScoreText));
+
+		bInitializeScore = false;
+		HUDScore = 0.f;
 	}
 	else
 	{
-		bInitializeCharacterOverlay = true;
+		bInitializeScore = true;
 		HUDScore = Score;
 	}
 
@@ -119,10 +241,14 @@ void AShooterPlayerController::SetHUDDefeats(int32 Defeats)
 	{
 		FString DefeatsText = FString::Printf(TEXT("%d"), Defeats);
 		ShooterHUD->CharacterOverlay->DefeatsAmount->SetText(FText::FromString(DefeatsText));
+
+		bInitializeDefeats = false;
+		HUDDefeats = 0.f;
+
 	}
 	else
 	{
-		bInitializeCharacterOverlay = true;
+		bInitializeDefeats = true;
 		HUDDefeats = Defeats;
 	}
 }
@@ -138,6 +264,15 @@ void AShooterPlayerController::SetHUDWeaponAmmo(int32 WeaponAmmo)
 	{
 		FString WeaponAmmoText = FString::Printf(TEXT("%d"), WeaponAmmo);
 		ShooterHUD->CharacterOverlay->WeaponAmmoAmount->SetText(FText::FromString(WeaponAmmoText));
+
+		bInitializeWeaponAmmo = false;
+		HUDWeaponAmmo = 0.f;
+	}
+	else
+	{
+		bInitializeWeaponAmmo = true;
+		HUDWeaponAmmo = WeaponAmmo;
+
 	}
 
 }
@@ -153,6 +288,15 @@ void AShooterPlayerController::SetHUDCarriedAmmo(int32 CarriedAmmo)
 	{
 		FString CarriedAmmoText = FString::Printf(TEXT("%d"), CarriedAmmo);
 		ShooterHUD->CharacterOverlay->CarriedAmmoAmount->SetText(FText::FromString(CarriedAmmoText));
+
+		bInitializeCarriedAmmo = false;
+		HUDCarriedAmmo = 0.f;
+
+	}
+	else
+	{
+		bInitializeCarriedAmmo = true;
+		HUDCarriedAmmo = CarriedAmmo;
 	}
 }
 
@@ -268,8 +412,9 @@ void AShooterPlayerController::SetHUDTime()
 }
 
 /*
-* Funcion que comprueba que exista el HUD del personaje, si existe y la variable Initialize=true, significa que el HUD necesita ser actualizado mediante esta funcion
-* Esto porque al momento de crearse el HUD la partida todavia no ha comenzado y no se asignan los valores iniciales
+* Funcion que registra valores iniciales de las variables del HUD (Vida, Puntuacion...)
+* Esto porque al momento de inicializar el HUD los valores que tienen las variables del HUD no corresponden con los que deberia de tener
+* Info: Esto se podria hacer en el HUD del personaje, pero debido a que el controlador es la interfaz entre el Pawn y el jugador tiene sentido hacerlo en el controller.
 */
 void AShooterPlayerController::PollInit()
 {
@@ -280,9 +425,18 @@ void AShooterPlayerController::PollInit()
 			CharacterOverlay = ShooterHUD->CharacterOverlay;
 			if (CharacterOverlay)
 			{
-				SetHUDHealth(HUDHealth, HUDMaxHealth);
-				SetHUDScore(HUDScore);
-				SetHUDDefeats(HUDDefeats);
+				if(bInitializeHealth)
+					SetHUDHealth(HUDHealth, HUDMaxHealth);
+				if (bInitializeShield)
+					SetHUDShield(HUDShield, HUDMaxShield);
+				if (bInitializeScore)
+					SetHUDScore(HUDScore);
+				if (bInitializeDefeats)
+					SetHUDDefeats(HUDDefeats);
+				if (bInitializeCarriedAmmo)
+					SetHUDCarriedAmmo(HUDCarriedAmmo);
+				if (bInitializeWeaponAmmo)
+					SetHUDWeaponAmmo(HUDWeaponAmmo);
 			}
 		}
 	}
@@ -300,6 +454,43 @@ void AShooterPlayerController::CheckTimeSync(float DeltaTime)
 	{
 		ServerRequestServerTime(GetWorld()->GetTimeSeconds());
 
+	}
+}
+
+/*
+* Funcion que activa aviso de mala conexion
+*/
+void AShooterPlayerController::HighPingWarning()
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->HighPingImage &&  //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		ShooterHUD->CharacterOverlay->HighPingAnimation)
+	{
+		ShooterHUD->CharacterOverlay->HighPingImage->SetOpacity(1.f);
+		ShooterHUD->CharacterOverlay->PlayAnimation(ShooterHUD->CharacterOverlay->HighPingAnimation, 0.f, 5);
+	}
+}
+
+/*
+* Funcion que desactiva aviso de mala conexion
+*/
+void AShooterPlayerController::StopHighPingWarning()
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->HighPingImage &&  //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		ShooterHUD->CharacterOverlay->HighPingAnimation)
+	{
+		ShooterHUD->CharacterOverlay->HighPingImage->SetOpacity(0.f);
+		if (ShooterHUD->CharacterOverlay->IsAnimationPlaying(ShooterHUD->CharacterOverlay->HighPingAnimation))
+		{
+			ShooterHUD->CharacterOverlay->StopAnimation(ShooterHUD->CharacterOverlay->HighPingAnimation);
+		}
 	}
 }
 
@@ -371,10 +562,12 @@ void AShooterPlayerController::ClientReportServerTime_Implementation(float TimeO
 {
 	//Calculas la diferencia entre el momento actual con el momento en el que hiciste la peticion para saber el delay
 	float RoundTripTime = GetWorld()->GetTimeSeconds() - TimeOfClientRequest;
-
+	
+	SingleTripTime = (0.5f * RoundTripTime);
+	
 	//Teniendo que el delay generado es por el trayecto Cliente->Servidor y Servidor->Cliente, si divides ese delay por la mitad y se lo sumas al tiempo
 	//Que te ha dado el servidor, tendrás, aproximadamente, el tiempo que tiene el servidor al momento de leer esta linea de codigo
-	float CurrentServerTime = TimeServerReceivedClientRequest + (0.5f * RoundTripTime); 
+	float CurrentServerTime = TimeServerReceivedClientRequest + SingleTripTime;
 
 	ClientServerDelta = CurrentServerTime - GetWorld()->GetTimeSeconds();
 }
@@ -525,4 +718,62 @@ void AShooterPlayerController::HandleCooldown()
 		ShooterCharacter->GetCombatComponent()->FireButtonPressed(false); //Si esta disparando cuando acaba la partida se pone a false a la fuerza
 	}
 
+}
+
+float AShooterPlayerController::GetPing()
+{
+	PlayerState = PlayerState == nullptr ? GetPlayerState<APlayerState>() : PlayerState;
+	if (PlayerState)
+	{
+		return PlayerState->GetPingInMilliseconds();
+	}
+	return -1.f;
+}
+
+/*
+* Funcion llamada desde el GameMode, esta función llama a todos los clientes para que desde cada cliente, con la funcion ClientElimAnnouncement se ejecute la logica a nivel local de que se ha eliminado a un player
+* Al hacerlo de esta manera podemos editar los mensajes a nivel local para hacerlos mas personalizados (Ej: tu eliminaste a X jugador)
+*/
+void AShooterPlayerController::BroadcastElim(APlayerState* Attacker, APlayerState* Victim)
+{
+	ClientElimAnnouncement(Attacker,Victim);
+}
+
+/*
+* Funcion que se llama a nivel cliente (UFUNCTION(Client)). Lleva la logica de imprimir por pantalla quien mato a quien a nivel local
+*/
+void AShooterPlayerController::ClientElimAnnouncement_Implementation(APlayerState* Attacker, APlayerState* Victim)
+{
+	APlayerState* Self = GetPlayerState<APlayerState>();
+	if (Attacker && Victim && Self)
+	{
+		ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+		if (ShooterHUD)
+		{
+			//Comprobamos posibilidades de matar a alguien o nos matan o nos suicidamos etc...
+			if (Attacker == Self && Victim != Self)
+			{
+				ShooterHUD->AddElimAnnouncement("You", Victim->GetPlayerName());
+				return;
+			}
+			if (Victim == Self && Attacker != Self)
+			{
+				ShooterHUD->AddElimAnnouncement(Attacker->GetPlayerName(), "You");
+				return;
+			}
+			if (Attacker == Victim && Attacker == Self)
+			{
+				ShooterHUD->AddElimAnnouncement("You", "yourself");
+				return;
+			}
+			if (Attacker == Victim && Attacker != Self)
+			{
+				ShooterHUD->AddElimAnnouncement(Attacker->GetPlayerName(), "themselves");
+				return;
+			}
+
+			//Caso General:
+			ShooterHUD->AddElimAnnouncement(Attacker->GetPlayerName(), Victim->GetPlayerName());
+		}
+	}
 }

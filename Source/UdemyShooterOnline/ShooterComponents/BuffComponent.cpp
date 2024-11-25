@@ -16,6 +16,7 @@ void UBuffComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	HealRampUp(DeltaTime);
+	ShieldRamUp(DeltaTime);
 
 }
 
@@ -24,6 +25,13 @@ void UBuffComponent::Heal(float HealAmount, float HealingTime)
 	HealingRate = HealAmount / HealingTime;
 	AmountToHeal += HealAmount;
 	bHealing = true;
+}
+
+void UBuffComponent::Shield(float ShieldAmount, float ShieldTime)
+{
+	ShieldRate = ShieldAmount / ShieldTime;
+	AmountToShield += ShieldAmount;
+	bShield = true;
 }
 
 void UBuffComponent::BuffSpeed(float BuffBaseSpeed, float BuffCroachSpeed, float BuffTime)
@@ -87,6 +95,31 @@ void UBuffComponent::HealRampUp(float DeltaTime)
 		HealingRate = 0.f;
 		AmountToHeal = 0.f;
 	}
+}
+
+void UBuffComponent::ShieldRamUp(float DeltaTime)
+{
+	/*
+	if (bShield) UE_LOG(LogTemp, Warning, TEXT("Guacamole"));
+	if (!bShield) UE_LOG(LogTemp, Warning, TEXT("Aguacate"));
+	*/
+
+	if (!bShield || Character == nullptr || Character->IsElimmed()) return;
+
+	const float ShieldThisFrame = ShieldRate * DeltaTime;
+
+	Character->SetShield(FMath::Clamp(Character->GetShield() + ShieldThisFrame, 0, Character->GetMaxShield()));
+	Character->UpdateHUDShield();
+
+	AmountToShield -= ShieldThisFrame;
+
+	if (AmountToShield <= 0.f || Character->GetShield() >= Character->GetMaxShield())
+	{
+		bShield = false;
+		ShieldRate = 0.f;
+		AmountToShield = 0.f;
+	}
+
 }
 
 void UBuffComponent::BeginPlay()

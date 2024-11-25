@@ -37,14 +37,32 @@ APickup::APickup()
 void APickup::BeginPlay()
 {
 	Super::BeginPlay();
-	
-	OverlapSphere->OnComponentBeginOverlap.AddDynamic(this, &APickup::OnSphereOverlap);
+
+	//Se inicia un timer para unir la funcion OnSphereOverlap porque si el personaje está encima del pickup en el momento de su creacion
+	//No da tiempo a que cree toda la logica del pickup
+	if (HasAuthority())
+	{
+		GetWorldTimerManager().SetTimer(
+			BindOverlapTimer,
+			this,
+			&APickup::BindOverlapTimerFinished,
+			BindOverlapTime
+		);
+	}
 }
 
 void APickup::OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 
 
+}
+
+/*
+* Función que une (bind) el metodo OnSphereOverlap cuando el componente OverlapSphere esta siendo overlappeado
+*/
+void APickup::BindOverlapTimerFinished()
+{
+		OverlapSphere->OnComponentBeginOverlap.AddDynamic(this, &APickup::OnSphereOverlap);
 }
 
 void APickup::Tick(float DeltaTime)

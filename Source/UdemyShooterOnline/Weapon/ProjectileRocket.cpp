@@ -15,7 +15,32 @@ AProjectileRocket::AProjectileRocket()
 	ProjectileMesh->SetupAttachment(RootComponent);
 	ProjectileMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	ProjectileMovementComponent->InitialSpeed = InitialSpeed;
+	ProjectileMovementComponent->MaxSpeed = InitialSpeed;
 }
+
+/*
+* Esta funcion refresca los valores que pongas dentro de la funcion cuando cambias un parametro
+* En nuestro caso, la velocidad incial del proyectil, ya que depende de la clase Projectile y lo estamos asignado a un componente.
+* Al momento de crear el BP se asigna el valor que queremos, pero si queremos cambiar el valor por defecto no se actualiza en el componente projectil
+* Entonces, usamos esta funcion para que refresque el valor del componente si se ha cambiado el valor de la variable de la clase (Initial Speed)
+*/
+#if WITH_EDITOR
+void AProjectileRocket::PostEditChangeProperty(FPropertyChangedEvent& Event)
+{
+	Super::PostEditChangeProperty(Event);
+
+	FName PropertyName = Event.Property != nullptr ? Event.Property->GetFName() : NAME_None; //Guarda el nombre de la variable que ha cambiado
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(AProjectileRocket, InitialSpeed))			//Si dicha variable es Initial Speed, entonces ejecutamo la logica de refresco
+	{
+		if (ProjectileMovementComponent)
+		{
+			ProjectileMovementComponent->InitialSpeed = InitialSpeed;
+			ProjectileMovementComponent->MaxSpeed = InitialSpeed;
+		}
+	}
+}
+#endif
 
 void AProjectileRocket::Destroyed()
 {

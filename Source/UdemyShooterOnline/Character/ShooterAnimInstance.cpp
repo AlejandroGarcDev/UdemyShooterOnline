@@ -100,5 +100,13 @@ void UShooterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 		}
 	}
 
-	bUseFabrik = ShooterCharacter->GetCombatState() != ECombatState::ECS_Reloading; //Mientras no estamos recargando podemos usar Fabrik (mano atachada al arma)
+	bUseFabrik = ShooterCharacter->GetCombatState() == ECombatState::ECS_Unoccupied; //bUseFabrik sera true cuando este desocupado el personaje
+	
+	if (ShooterCharacter->IsLocallyControlled() && ShooterCharacter->bFinishedSwapping)
+	{
+		//De manera local actualizamos bUseFabrik de acuerdo a nuestra variable local de recargando y de SwapWeapons
+		//Esto nos permite no experimentar lag y debido a que esto no es nada explotable para hacer trampas podemos gestionarlo desde el cliente
+
+		bUseFabrik = !ShooterCharacter->IsLocallyReloading();	
+	}
 }

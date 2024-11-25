@@ -15,18 +15,19 @@ void UOverheadWidget::SetDisplayText(FString TextToDisplay)
 
 void UOverheadWidget::ShowPlayerNetRole(APawn* InPawn)
 {
-	ENetRole RemoteRole = InPawn->GetRemoteRole();
+	ENetRole RemoteRole = InPawn->GetRemoteRole();		//Rol del pawn a nivel multijugador
+	ENetRole LocalRole = InPawn->GetLocalRole();		//Rol del pawn a nivel local
 	FString Role;
-	switch (RemoteRole)
+	switch (LocalRole)
 	{
 	case ENetRole::ROLE_Authority:
-		Role = FString("Authority");
+		Role = FString("Authority");			//Servidor
 		break;
 	case ENetRole::ROLE_AutonomousProxy:
-		Role = FString("Autonomous Proxy");
+		Role = FString("Autonomous Proxy");		//El jugador tiene control sobre este pawn
 		break;
 	case ENetRole::ROLE_SimulatedProxy:
-		Role = FString("Simulated Proxy");
+		Role = FString("Simulated Proxy");		//El jugador no tiene control sobre este pawn (otro player)
 		break;
 	case ENetRole::ROLE_None:
 		Role = FString("None");

@@ -31,14 +31,25 @@ public:
 
 	void EquipWeapon(AMasterWeapon* WeaponToEquip);
 
+	void SwapWeapon();
+
 	void Reload();
 
 	UFUNCTION(BlueprintCallable)
 	void FinishReloading();
 
+	UFUNCTION(BlueprintCallable)
+	void FinishSwap();
+
+	UFUNCTION(BlueprintCallable)
+	void FinishSwapAttachWeapons();
+
 	void FireButtonPressed(bool bPressed);
 
 	void PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
+
+	UFUNCTION(BlueprintCallable)
+	ECombatState GetCombatState();
 
 protected:
 
@@ -52,7 +63,20 @@ protected:
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
 
+	UFUNCTION()
+	void OnRep_SecondaryWeapon();
+
 	void Fire();
+
+	void FireProjectileWeapon();
+	
+	void FireHitScanWeapon();
+
+	void FireShotgun();
+
+	void LocalFire(const FVector_NetQuantize& TraceHitTarget);
+
+	void LocalShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets);
 
 	/*
 	*	Con esta funcion llamamos desde el cliente al servidor para informar que hemos disparado, despues, el servidor hara un broadcast a los clientes.
@@ -76,18 +100,38 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
 
+	UFUNCTION(Server, Reliable)
+	void ServerShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets);
+
 	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
 
-	void SetHUDCrosshairs(float DeltaTime);
+	void SetHUDCrosshairs(float DeltaTime); 
 
 	UFUNCTION(Server, Reliable)
 	void ServerReload();
 
+	void PlayEquipWeaponSound(AMasterWeapon* WeaponToEquip);
+
 	void HandleReload();
+
+	void AttachActorToBack(AActor* ActorToAttach);
+
+	void AttachActorToRightHand(AActor* ActorToAttach);
 
 	void UpdateCarriedAmmo();
 
 	int32 AmountToReload();
+
+	void EquipPrimaryWeapon(AMasterWeapon* WeaponToEquip);
+
+	void EquipSecondaryWeapon(AMasterWeapon* WeaponToEquip);
+
+	bool bLocallyReloading = false; //Variable de conciciliacion con el servidor a la hora de recargar
+									//Si hay bastante lag, el servidor al propagar que esta recargando al cliente que controla el character, puede ser
+									//que el character ya haya terminado de recargar, por lo que localmente se comprueba esta variable
 
 private:
 
@@ -106,8 +150,18 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
 	AMasterWeapon* EquippedWeapon;
 
-	UPROPERTY(Replicated)
-	bool bAiming;
+	UPROPERTY(ReplicatedUsing = OnRep_SecondaryWeapon)
+	AMasterWeapon* SecondaryWeapon;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Aiming)
+	bool bAiming = false;
+
+	//Esta variable solo se actualiza localmente y tiene la funcion de verificar si la informacion que le llega al cliente desde el servidor es correcta
+	//Por motivos de lag cuando el servidor le dice al cliente que esta apuntando puede ser que haya dejado de apuntar, entonces se comprueba esta variable para comprobar este tipo de casos
+	bool bAimButtonPressed = false;
+
+	UFUNCTION()
+	void OnRep_Aiming();
 
 	UPROPERTY(EditAnywhere)
 	float BaseWalkSpeed;
@@ -229,4 +283,5 @@ private:
 
 public:	
 		
+	bool ShouldSwapWeapons();
 };

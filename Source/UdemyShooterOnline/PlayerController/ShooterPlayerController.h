@@ -3,9 +3,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "InputActionValue.h"
 #include "GameFramework/PlayerController.h"
 #include "UdemyShooterOnline/Weapon/WeaponTypes.h"
 #include "ShooterPlayerController.generated.h"
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHighPingDelegate, bool, bPingTooHigh);
+
+class UInputAction;
 
 /**
  * 
@@ -18,6 +23,8 @@ class UDEMYSHOOTERONLINE_API AShooterPlayerController : public APlayerController
 public:
 
 	void SetHUDHealth(float Health, float MaxHealth);
+
+	void SetHUDShield(float Shield, float MaxShield);
 
 	void SetHUDScore(float Score);
 
@@ -49,6 +56,13 @@ public:
 
 	void HandleCooldown();
 
+	float SingleTripTime = 0.f;
+
+	FHighPingDelegate HighPingDelegate;
+
+	float GetPing();
+
+	void BroadcastElim(APlayerState* Attacker, APlayerState* Victim);
 protected:
 
 	virtual void BeginPlay() override;
@@ -56,6 +70,8 @@ protected:
 	void SetHUDTime();
 
 	void PollInit();
+
+	virtual void SetupInputComponent() override;
 
 	/**
 	* Sync time between client and server
@@ -84,10 +100,37 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void ClientJoinMidgame(FName StateOfMatch, float Warmup, float Match, float Cooldown, float StartingTime);
 
+	void HighPingWarning();
+
+	void StopHighPingWarning();
+	
+	void CheckPing(float DeltaTime);
+
+	void ShowReturnToMainMenu();
+
+	UPROPERTY(EditAnywhere, Category = Input)
+	UInputAction* QuitAction;
+
+	UFUNCTION(Client, Reliable)
+	void ClientElimAnnouncement(APlayerState* Attacker, APlayerState* Victim);
+
 private:
 
 	//Se utiliza UPROPERTY() porque al hacerlo se inicializa como nullptr, lo que permite que si no esta inicializado no tenga informacion random
 	//Otra forma es inicializarlo como nullptr => class AShooterHUD* ShooterHUD; = nullptr 
+
+	/**
+	*	Return to main menu
+	*/
+
+	UPROPERTY(EditAnywhere, Category = HUD)
+	TSubclassOf<class UUserWidget> ReturnToMainMenuWidget;
+
+	UPROPERTY()
+	class UReturnToMainMenu* ReturnToMainMenu;
+
+	bool bReturnToMainMenuOpen = false;
+
 	UPROPERTY()
 	class AShooterHUD* ShooterHUD;
 
@@ -116,14 +159,47 @@ private:
 	UPROPERTY()
 	class UCharacterOverlay* CharacterOverlay;
 
-	bool bInitializeCharacterOverlay = false;
-
 	/*
 	*	Estas variables se usan para guardar la informacion del HUD antes de que empiece la partida 
 	*/
 
 	float HUDHealth;
 	float HUDMaxHealth;
+	bool bInitializeHealth = false;
+
+	float HUDShield;
+	float HUDMaxShield;
+	bool bInitializeShield = false;
+
 	float HUDScore;
+	bool bInitializeScore = false;
+
 	int32 HUDDefeats;
+	bool bInitializeDefeats = false;
+
+	float HUDCarriedAmmo;
+	bool bInitializeCarriedAmmo = false;
+
+	float HUDWeaponAmmo;
+	bool bInitializeWeaponAmmo = false;
+
+	//Tiempo que lleva el jugador siendo avisado de que tiene mala conexion
+	float HighPingRunningTime = 0.f; 
+
+	//Tiempo del que se avisa al jugador que tiene mala conexion, esto para no estar todo el rato molestando con lo mismo
+	UPROPERTY(EditAnywhere)
+	float HighPingDuration = 5.f;	
+
+	float PingAnimationRunningTime = 0.f;
+
+	//Cada cuanto tiempo se recuerda al jugador que tiene mala conexion
+	UPROPERTY(EditAnywhere)
+	float CheckPingFrequency = 20.f;
+
+	UFUNCTION(Server, Reliable)
+	void ServerReportPingStatus(bool bHighPing);
+
+	UPROPERTY(EditAnywhere)
+	float HighPingThreshold = 50.f;
+
 };

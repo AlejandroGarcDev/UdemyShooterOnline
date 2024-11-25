@@ -18,6 +18,11 @@ public:
 
 	AProjectileRocket();
 
+#if WITH_EDITOR
+	//Funcion que sirve para que los Blueprints del editor cambien de manera automatica
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& Event) override;
+#endif
+
 	virtual void Destroyed() override;
 
 protected:

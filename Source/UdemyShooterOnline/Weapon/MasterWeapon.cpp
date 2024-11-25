@@ -12,6 +12,7 @@
 #include "Engine/SkeletalMeshSocket.h"
 #include "UdemyShooterOnline/Character/ShooterCharacter.h"
 #include "UdemyShooterOnline/PlayerController/ShooterPlayerController.h"
+#include "Kismet/KismetMathLibrary.h"
 
 // Sets default values
 AMasterWeapon::AMasterWeapon() 
@@ -94,10 +95,12 @@ void AMasterWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AMasterWeapon, WeaponState);
-
-	DOREPLIFETIME(AMasterWeapon, Ammo);
+	DOREPLIFETIME_CONDITION(AMasterWeapon, bUseServerSideRewind, COND_OwnerOnly);
 }
 
+/*
+* Esta funcion se ejecuta cuando la variable Owner es cambiada en el servidor, de esta manera el cliente puede tener la variable actualizada pero es el servidor quien lo cambia
+*/
 void AMasterWeapon::OnRep_Owner()
 {
 	Super::OnRep_Owner();
@@ -110,7 +113,14 @@ void AMasterWeapon::OnRep_Owner()
 	}
 	else
 	{
-		SetHUDAmmo();
+		//Aqui comprobamos si al cambiar el dueño del arma, dicho dueño lo tiene como arma principal (y no secundaria o no equipada)
+		//Si es así, se actualiza la municion del arma principal en el HUD
+		ShooterOwnerCharacter = ShooterOwnerCharacter == nullptr ? Cast<AShooterCharacter>(Owner) : ShooterOwnerCharacter;
+		if (ShooterOwnerCharacter && ShooterOwnerCharacter->GetEquippedWeapon() && ShooterOwnerCharacter->GetEquippedWeapon() == this)
+		{
+			SetHUDAmmo();
+		}
+		
 	}
 }
 
@@ -146,108 +156,224 @@ void AMasterWeapon::OnSphereEndOverlap(UPrimitiveComponent* OverlappedComponent,
 	}
 }
 
-void AMasterWeapon::OnRep_WeaponState()
-{
-	switch (WeaponState)
-	{
-
-	case EWeaponState::EWS_Equipped:
-		ShowPickupWidget(false);
-		AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		WeaponMesh->SetSimulatePhysics(false);
-		WeaponMesh->SetEnableGravity(false);
-		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-		if (WeaponType == EWeaponType::EWT_SubmachineGun)
-		{
-			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-			WeaponMesh->SetEnableGravity(true);
-			WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
-			WeaponMesh->WakeAllRigidBodies();
-		}
-
-		EnableCustomDepth(false);
-
-		break;
-
-	case EWeaponState::EWS_Dropped:
-		WeaponMesh->SetSimulatePhysics(true);
-		WeaponMesh->SetEnableGravity(true);
-		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
-		WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Ignore);
-
-		WeaponMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_BLUE);
-		WeaponMesh->MarkRenderStateDirty();
-		EnableCustomDepth(true);
-
-		break;
-	}
-}
-
 /*
 * Funcion que gestiona la logica cuando se dispara con el arma: 1) Restar una bala; 2) Actualizar HUD
 * 
-* Teniendo en cuenta que esto se llama desde el servidor [AMasterWeapon::Fire()] se ejecuta la misma logica en OnRep_Ammo
+* Teniendo en cuenta que esto se llama desde el servidor [AMasterWeapon::Fire()], se ejecuta la misma logica en OnRep_Ammo
 */
-
 void AMasterWeapon::SpendRound()
 {
 	Ammo = FMath::Clamp(Ammo - 1, 0, MagCapacity);
 	SetHUDAmmo();
+	
+	//Server reconciliation
+	if (HasAuthority())
+	{
+		ClientUpdateAmmo(Ammo);
+	}
+	else if (ShooterOwnerCharacter && ShooterOwnerCharacter->IsLocallyControlled())
+	{
+		++Sequence;
+	}
 }
 
-void AMasterWeapon::OnRep_Ammo()
+/*
+* Funcion llamada desde el server que actualiza la municion del cliente,
+* utiliza una variable que define cuantos disparos están sin procesar todavia, por lo que tiene esta variable en cuenta para marcar las balas que quedan
+* aunque no esten todavia replicadas al cliente
+*/
+void AMasterWeapon::ClientUpdateAmmo_Implementation(uint32 ServerAmmo)
 {
+	if (HasAuthority()) return;
+	Ammo = ServerAmmo;
+	--Sequence;
+
+	Ammo -= Sequence;	//Restamos a la municion las iteraciones de disparo que todavia no se han replicado (debido al lag)
+						//Esta linea de codigo sirve siempre y cuando al disparar solo gastes una bala
 	SetHUDAmmo();
 }
 
+void AMasterWeapon::AddAmmo(int32 AmmoToAdd)
+{
+	Ammo = FMath::Clamp(Ammo + AmmoToAdd, 0, MagCapacity);
+	SetHUDAmmo();
+	ClientAddAmmo(AmmoToAdd);
+}
 
+void AMasterWeapon::ClientAddAmmo_Implementation(uint32 AmmoToAdd)
+{
+	if (HasAuthority()) return;
+	Ammo = FMath::Clamp(Ammo + AmmoToAdd, 0, MagCapacity);
+	SetHUDAmmo();
+}
+
+/*
+* Funcion que cambia el estado de un arma
+*/
 void AMasterWeapon::SetWeaponState(EWeaponState State)
 {
 	WeaponState = State;
+
+	OnWeaponStateSet();
+}
+
+void AMasterWeapon::OnPingTooHigh(bool bPingTooHigh)
+{
+	bUseServerSideRewind = !bPingTooHigh;
+}
+
+/*
+* Funcion que se ejecuta en todos los clientes (no hay _cond en DOREPLIFETIME) cuando se cambia la variable WeaponState
+*/
+void AMasterWeapon::OnRep_WeaponState()
+{
+	OnWeaponStateSet();
+}
+
+/*
+* Funcion que ejecuta segun que funcion dependiendo del nuevo estado del arma
+*/
+void AMasterWeapon::OnWeaponStateSet()
+{
 
 	switch (WeaponState)
 	{
 
 	case EWeaponState::EWS_Equipped:
-
-		ShowPickupWidget(false);
-		AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		WeaponMesh->SetSimulatePhysics(false);
-		WeaponMesh->SetEnableGravity(false);
-		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-		if (WeaponType == EWeaponType::EWT_SubmachineGun)
-		{
-			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-			WeaponMesh->SetEnableGravity(true);
-			WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
-			WeaponMesh->WakeAllRigidBodies();
-		}
-
-		EnableCustomDepth(false);
-
+		OnEquipped();
+		break;
+	
+	case EWeaponState::EWS_Secondary:
+		OnEquippedSecondary();
 		break;
 
 	case EWeaponState::EWS_Dropped:
-		if (HasAuthority())
+		OnDropped();
+		break;
+	}
+
+}
+
+/*
+* Funcion que ejecuta la logica cuando un arma pasa a ser equipada
+* 1) Deshabilita colissiones
+* 2) Desactiva gravedad y fisicas (a excepcion del subfusil ya que tiene una banda que tiene PhysicMaterial integrado)
+*/
+void AMasterWeapon::OnEquipped()
+{
+	ShowPickupWidget(false);
+	AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponMesh->SetSimulatePhysics(false);
+	WeaponMesh->SetEnableGravity(false);
+	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	if (WeaponType == EWeaponType::EWT_SubmachineGun)
+	{
+		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		WeaponMesh->SetEnableGravity(true);
+		WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+		WeaponMesh->WakeAllRigidBodies();
+	}
+	EnableCustomDepth(false);
+
+	ShooterOwnerCharacter = ShooterOwnerCharacter == nullptr ? Cast<AShooterCharacter>(GetOwner()) : ShooterOwnerCharacter;
+	if (ShooterOwnerCharacter && bUseServerSideRewind)
+	{
+		ShooterOwnerController = ShooterOwnerController == nullptr ? Cast<AShooterPlayerController>(ShooterOwnerCharacter->Controller) : ShooterOwnerController;
+		if (ShooterOwnerController && HasAuthority() && !ShooterOwnerController->HighPingDelegate.IsBound()) //Comprobamos si no hay funcion unida al delegate
 		{
-			AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			ShooterOwnerController->HighPingDelegate.AddDynamic(this, &AMasterWeapon::OnPingTooHigh);
 		}
+	}
+}
+
+/*
+* Funcion que ejecuta la logica cuando un arma pasa a ser arma secundaria
+* 1) Deshabilita colissiones
+* 2) Desactiva gravedad y fisicas (a excepcion del subfusil ya que tiene una banda que tiene PhysicMaterial integrado)
+* 3) Activa outline blanco
+*/
+void AMasterWeapon::OnEquippedSecondary()
+{
+	ShowPickupWidget(false);
+	AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponMesh->SetSimulatePhysics(false);
+	WeaponMesh->SetEnableGravity(false);
+	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	if (WeaponType == EWeaponType::EWT_SubmachineGun)
+	{
+		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		WeaponMesh->SetEnableGravity(true);
+		WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+		WeaponMesh->WakeAllRigidBodies();
+	}
+	/*
+	//Comprobamos si es el servidor quien recoge el arma, si es asi, se activa directamente en el servidor (esta funcion se llama desde el servidor)
+	if (ShooterOwnerCharacter->IsLocallyControlled())
+	{
+		WeaponMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_TAN);
+		WeaponMesh->MarkRenderStateDirty();
+		EnableCustomDepth(true);
+	}
+	else
+	{
+		EnableCustomDepth(false);
+	}
+	*/
+
+	ShooterOwnerCharacter = ShooterOwnerCharacter == nullptr ? Cast<AShooterCharacter>(GetOwner()) : ShooterOwnerCharacter;
+	if (ShooterOwnerCharacter && bUseServerSideRewind)
+	{
+		ShooterOwnerController = ShooterOwnerController == nullptr ? Cast<AShooterPlayerController>(ShooterOwnerCharacter->Controller) : ShooterOwnerController;
+		if (ShooterOwnerController && HasAuthority() && ShooterOwnerController->HighPingDelegate.IsBound()) //Comprobamos si no hay funcion unida al delegate
+		{
+			ShooterOwnerController->HighPingDelegate.RemoveDynamic(this, &AMasterWeapon::OnPingTooHigh);
+		}
+	}
+
+}
+
+
+/*
+* Funcion que ejecuta la logica cuando un arma pasa a dropped
+* 1) Habilita colisiones
+* 2) Activa gravedad y fisicas
+* 3) Desactiva colisiones con pawn y camera (para que no se trabe al soltar el arma con ninguno de los dos)
+* 4) Activa el outline
+*/
+void AMasterWeapon::OnDropped()
+{
+	if (HasAuthority())
+	{
+		AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	}
+	if (WeaponMesh)
+	{
 		WeaponMesh->SetSimulatePhysics(true);
 		WeaponMesh->SetEnableGravity(true);
 		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
 		WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Ignore);
-
+		WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 		WeaponMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_BLUE);
 		WeaponMesh->MarkRenderStateDirty();
-		EnableCustomDepth(true);
+		EnableCustomDepth(true);	//Nota: En equipped no lo ponemos como falso, porque puede estar equipado pero a la espalda, en cuyo caso se pone un
+									//Outline blanco. Por lo tanto se ha decidido setear a falso el CustomDepth en combat component, cuando equipamos un arma como principal
+	}		
 
-		break;
+	ShooterOwnerCharacter = ShooterOwnerCharacter == nullptr ? Cast<AShooterCharacter>(GetOwner()) : ShooterOwnerCharacter;
+	if (ShooterOwnerCharacter && bUseServerSideRewind)
+	{
+		ShooterOwnerController = ShooterOwnerController == nullptr ? Cast<AShooterPlayerController>(ShooterOwnerCharacter->Controller) : ShooterOwnerController;
+		if (ShooterOwnerController && HasAuthority() && ShooterOwnerController->HighPingDelegate.IsBound()) //Comprobamos si no hay funcion unida al delegate
+		{
+			ShooterOwnerController->HighPingDelegate.RemoveDynamic(this, &AMasterWeapon::OnPingTooHigh);
+		}
 	}
+
 }
+
 
 bool AMasterWeapon::IsEmpty()
 {
@@ -292,9 +418,7 @@ void AMasterWeapon::Fire(const FVector& HitTarget)
 			}
 		}
 	}
-
 	SpendRound();
-
 }
 
 void AMasterWeapon::Dropped()
@@ -313,10 +437,35 @@ void AMasterWeapon::Dropped()
 	ShooterOwnerController = nullptr;
 }
 
-void AMasterWeapon::AddAmmo(int32 AmmoToAdd)
+
+/*
+* Al momento de disparar un arma con dispersion (escopeta) se ejecuta esta funcion:
+* 1) Se genera una esfera a la distancia "DistanceToSphere" que servira como referencia para tomar puntos aleatorios de ella y generar los perdigones
+* 2) Se genera un vector aleatorio desde el centro del origen hasta, como maximo, el perimetro de la esfera
+* 3) Teniendo el punto aleatorio generado se crea la trayectoria del perdigon
+*/
+FVector AMasterWeapon::TraceEndWithScatter(const FVector& HitTarget)
 {
-	Ammo = FMath::Clamp(Ammo + AmmoToAdd, 0, MagCapacity);
-	
-	SetHUDAmmo();
+	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName("MuzzleFlash");
+	if (MuzzleFlashSocket == nullptr) return FVector();
+
+	const FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
+	const FVector TraceStart = SocketTransform.GetLocation();
+
+	//Se normaliza la distancia a la que apunta para despues generar una esfera de referencia a la hora de generar trayectorias aleatorias
+	const FVector ToTargetNormalized = (HitTarget - TraceStart).GetSafeNormal();
+	const FVector SphereCenter = TraceStart + ToTargetNormalized * DistanceToSphere;
+
+	//Genero la localizacion random dentro de la esfera
+	const FVector RandomVec = UKismetMathLibrary::RandomUnitVector() * FMath::FRandRange(0.f, SphereRadius);
+
+	//Añado offset o posicion de origen de la esfera al punto aleatorio generado
+	const FVector EndLoc = SphereCenter + RandomVec;
+
+	//Genero el vector de desplazamiento de la bala
+	const FVector ToEndLoc = EndLoc - TraceStart;
+
+	return FVector(TraceStart + ToEndLoc * TRACE_LENGHT / ToEndLoc.Size());
 }
+
 
