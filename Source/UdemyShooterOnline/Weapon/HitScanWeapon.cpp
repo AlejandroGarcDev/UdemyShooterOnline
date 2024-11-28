@@ -57,8 +57,7 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 						ShooterCharacter,
 						Start,
 						HitTarget, //Tambien se puede pasar como parametro FireHit.ImpactPoint
-						ShooterOwnerController->GetServerTime() - ShooterOwnerController->SingleTripTime, //Aprox del tiempo del server - delay entre cliente-server
-						this
+						ShooterOwnerController->GetServerTime() - ShooterOwnerController->SingleTripTime //Aprox del tiempo del server - delay entre cliente-server
 					);
 				}
 			}

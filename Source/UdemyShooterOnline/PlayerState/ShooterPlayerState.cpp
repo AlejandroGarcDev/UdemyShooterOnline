@@ -19,6 +19,7 @@ void AShooterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AShooterPlayerState, Defeats);
+	DOREPLIFETIME(AShooterPlayerState, Team);
 
 }
 
@@ -70,8 +71,6 @@ void AShooterPlayerState::AddToDefeats(int32 DefeatsAmount)
 	}
 }
 
-
-
 /*
 * Funcion que se llama desde el servidor a los clientes (se ejecutan en los clientes)
 */
@@ -92,4 +91,28 @@ void AShooterPlayerState::OnRep_Score()
 	}
 }
 
+/*
+* Funcion que se ejecuta en todas las maquinas al cambiar el valor del equipo
+* La funcion asigna el color del jugador en funcion del nuevo equipo
+*/
+void AShooterPlayerState::OnRep_Team()
+{
+	AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(GetPawn());
+	if (ShooterCharacter)
+	{
+		ShooterCharacter->SetTeamColor(Team);
+	}
+}
 
+/*
+* Ademas de asignar el nuevo equipo, llama al character y le asigna su nuevo color de la malla (EquipoAzul->ColorAzul en el Character)
+*/
+void AShooterPlayerState::SetTeam(ETeam TeamToSet)
+{
+	Team = TeamToSet;
+	AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(GetPawn());
+	if (ShooterCharacter)
+	{
+		ShooterCharacter->SetTeamColor(Team);
+	}
+}

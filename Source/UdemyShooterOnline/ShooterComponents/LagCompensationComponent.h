@@ -107,8 +107,7 @@ public:
 		AShooterCharacter* HitCharacter,
 		const FVector_NetQuantize& TraceStart,
 		const FVector_NetQuantize& HitLocation,
-		float HitTime,
-		class AMasterWeapon* DamageCauser
+		float HitTime
 	);
 
 	UFUNCTION(Server, Reliable)

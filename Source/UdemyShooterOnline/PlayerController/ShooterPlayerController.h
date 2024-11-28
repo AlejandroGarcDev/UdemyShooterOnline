@@ -23,36 +23,32 @@ class UDEMYSHOOTERONLINE_API AShooterPlayerController : public APlayerController
 public:
 
 	void SetHUDHealth(float Health, float MaxHealth);
-
 	void SetHUDShield(float Shield, float MaxShield);
-
 	void SetHUDScore(float Score);
-
 	void SetHUDDefeats(int32 Defeats);
+	void HideTeamScores();
+	void InitTeamScores();
+	void SetHUDRedTeamScore(uint32 RedScore);
+	void SetHUDBlueTeamScore(uint32 BlueScore);
 
 	void SetHUDWeaponAmmo(int32 WeaponAmmo);
-
 	void SetHUDCarriedAmmo(int32 CarriedAmmo);
-
 	void SetHUDWeaponType(EWeaponType WeaponEquipped);
 
 	void SetHUDMatchCountdown(float Time);
-
 	void SetHUDAnnouncementCountdown(float Time);
 
 	virtual void OnPossess(APawn* InPawn) override;
-
 	virtual void Tick(float DeltaTime) override;
-
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	virtual float GetServerTime(); //Synced with server world clock
 
 	virtual void ReceivedPlayer() override; //We override this func to sync with server clock as soon as possible
 
-	void OnMatchStateSet(FName State);
+	void OnMatchStateSet(FName State, bool bTeamsMatch = false);
 
-	void HandleMatchHasStarted();
+	void HandleMatchHasStarted(bool bTeamsMatch = false);
 
 	void HandleCooldown();
 
@@ -114,6 +110,14 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void ClientElimAnnouncement(APlayerState* Attacker, APlayerState* Victim);
 
+	UPROPERTY(ReplicatedUsing = OnRep_ShowTeamScores)
+	bool bShowTeamScores = false;
+
+	UFUNCTION()
+	void OnRep_ShowTeamScores();
+
+	FString GetInfoText(const TArray<class AShooterPlayerState*>& Players);
+	FString GetTeamsInfoText(class AShooterGameState* ShooterGameState);
 private:
 
 	//Se utiliza UPROPERTY() porque al hacerlo se inicializa como nullptr, lo que permite que si no esta inicializado no tenga informacion random

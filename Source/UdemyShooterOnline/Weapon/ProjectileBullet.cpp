@@ -50,9 +50,12 @@ void AProjectileBullet::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, 
 		{
 			if (OwnerCharacter->HasAuthority() && !bUseServerSideRewind)
 			{
+
+				const float DamageToCause = Hit.BoneName.ToString() == FString("head") ? HeadShotDamage : Damage; //Si es headshot aplicamos daño de headshot
+
 				UGameplayStatics::ApplyDamage(
 					OtherActor,
-					Damage,		//Variable definida en Projectile.h
+					DamageToCause,		//Variable definida en Projectile.h
 					OwnerController,
 					this,
 					UDamageType::StaticClass());

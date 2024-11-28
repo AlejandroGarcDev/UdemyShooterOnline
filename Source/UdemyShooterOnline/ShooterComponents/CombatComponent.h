@@ -119,6 +119,8 @@ protected:
 
 	void AttachActorToBack(AActor* ActorToAttach);
 
+	void AttachFlagToBack(AActor* FlagToAttach);
+
 	void AttachActorToRightHand(AActor* ActorToAttach);
 
 	void UpdateCarriedAmmo();
@@ -128,6 +130,8 @@ protected:
 	void EquipPrimaryWeapon(AMasterWeapon* WeaponToEquip);
 
 	void EquipSecondaryWeapon(AMasterWeapon* WeaponToEquip);
+
+	void EquipFlag(class AFlag* FlagToEquip);
 
 	bool bLocallyReloading = false; //Variable de conciciliacion con el servidor a la hora de recargar
 									//Si hay bastante lag, el servidor al propagar que esta recargando al cliente que controla el character, puede ser
@@ -152,6 +156,9 @@ private:
 
 	UPROPERTY(ReplicatedUsing = OnRep_SecondaryWeapon)
 	AMasterWeapon* SecondaryWeapon;
+
+	UPROPERTY()
+	AFlag* FlagEquipped;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Aiming)
 	bool bAiming = false;
@@ -280,6 +287,9 @@ private:
 	void OnRep_CombatState();
 
 	void UpdateAmmoValues();
+
+	UPROPERTY(Replicated)
+	bool bHoldingTheFlag = false;
 
 public:	
 		

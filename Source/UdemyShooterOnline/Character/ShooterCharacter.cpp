@@ -28,6 +28,7 @@
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "UdemyShooterOnline/GameState/ShooterGameState.h"
+#include "UdemyShooterOnline/Weapon/Flag.h"
 
 
 // Sets default values
@@ -190,6 +191,30 @@ void AShooterCharacter::MulticastLostTheLead_Implementation()
 	if (CrownComponent)
 	{
 		CrownComponent->DestroyComponent();
+	}
+}
+
+void AShooterCharacter::SetTeamColor(ETeam Team)
+{
+	if (GetMesh() == nullptr) return;
+
+	switch (Team)
+	{
+	case ETeam::ET_NoTeam:
+		if (NoTeam_ColorInstance_01 == nullptr || NoTeam_ColorInstance_02 == nullptr) return;
+		GetMesh()->SetMaterial(0, NoTeam_ColorInstance_01);
+		GetMesh()->SetMaterial(1, NoTeam_ColorInstance_02);
+		break;
+	case ETeam::ET_BlueTeam:
+		if (BlueTeam_ColorInstance_01 == nullptr || BlueTeam_ColorInstance_02 == nullptr) return;
+		GetMesh()->SetMaterial(0, BlueTeam_ColorInstance_01);
+		GetMesh()->SetMaterial(1, BlueTeam_ColorInstance_02);
+		break;
+	case ETeam::ET_RedTeam:
+		if (RedTeam_ColorInstance_01 == nullptr || RedTeam_ColorInstance_02 == nullptr) return;
+		GetMesh()->SetMaterial(0, RedTeam_ColorInstance_01);
+		GetMesh()->SetMaterial(1, RedTeam_ColorInstance_02);
+		break;	
 	}
 }
 
@@ -386,9 +411,13 @@ void AShooterCharacter::ElimTimerFinished()
 		{
 			DropOrDestroyWeapon(Combat->SecondaryWeapon);
 		}
+		if (Combat->FlagEquipped)
+		{
+			Combat->FlagEquipped->SetWeaponState(EWeaponState::EWS_Dropped);
+		}
 	}
 
-	AShooterGameMode* ShooterGameMode = GetWorld()->GetAuthGameMode<AShooterGameMode>();
+	ShooterGameMode = ShooterGameMode == nullptr ? GetWorld()->GetAuthGameMode<AShooterGameMode>() : ShooterGameMode;
 	if (ShooterGameMode && !bLeftGame)
 	{
 		ShooterGameMode->RequestRespawn(this, Controller);
@@ -401,8 +430,8 @@ void AShooterCharacter::ElimTimerFinished()
 
 void AShooterCharacter::ServerLeaveGame_Implementation()
 {
-	AShooterGameMode* ShooterGameMode = GetWorld()->GetAuthGameMode<AShooterGameMode>();
-	ShooterPlayerState = ShooterPlayerState == nullptr ? GetPlayerState<AShooterPlayerState>() : ShooterPlayerState;
+	ShooterGameMode = ShooterGameMode == nullptr ? GetWorld()->GetAuthGameMode<AShooterGameMode>() : ShooterGameMode;
+	ShooterPlayerState = ShooterPlayerState == nullptr ? Cast<AShooterPlayerState>(GetPlayerState()) : ShooterPlayerState;
 	if (ShooterGameMode && ShooterPlayerState)
 	{
 		ShooterGameMode->PlayerLeftGame(ShooterPlayerState);
@@ -600,8 +629,9 @@ void AShooterCharacter::PlayElimMontage()
 
 void AShooterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
 {
-	if (bElimmed) return;
-
+	ShooterGameMode = ShooterGameMode == nullptr ? GetWorld()->GetAuthGameMode<AShooterGameMode>() : ShooterGameMode;
+	if (bElimmed || ShooterGameMode == nullptr) return;
+	Damage = ShooterGameMode->CalculateDamage(InstigatorController, Controller, Damage);
 	/*
 	* Esto se ejecuta en el servidor (Ver BeginPlay)
 	* Sin embargo, como Health es una variable replicada:
@@ -623,7 +653,7 @@ void AShooterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const 
 	
 	if (DamageRemainder > 0.f)
 	{
-		Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+		Health = FMath::Clamp(Health - DamageRemainder, 0.f, MaxHealth);
 	}
 
 	PlayHitReactMontage();
@@ -634,7 +664,6 @@ void AShooterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const 
 
 	if (Health == 0.0f)
 	{
-		AShooterGameMode* ShooterGameMode = GetWorld()->GetAuthGameMode<AShooterGameMode>();
 		if (ShooterGameMode)
 		{
 			ShooterPlayerController = ShooterPlayerController == nullptr ? Cast<AShooterPlayerController>(Controller) : ShooterPlayerController;
@@ -642,8 +671,6 @@ void AShooterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const 
 			ShooterGameMode->PlayerEliminited(this, ShooterPlayerController, AttackerController);
 		}
 	}
-	
-
 }
 
 void AShooterCharacter::CameraBoomCrouch(float DeltaTime)
@@ -670,12 +697,13 @@ void AShooterCharacter::PollInit()
 {
 	if (ShooterPlayerState == nullptr)
 	{
-		ShooterPlayerState = GetPlayerState<AShooterPlayerState>();
+		ShooterPlayerState = Cast<AShooterPlayerState>(GetPlayerState());
 		//Solo entrara aqui una vez, el momento en el que se puede inicializar la variable ShooterPlayerState
 		if (ShooterPlayerState)
 		{
 			ShooterPlayerState->AddToScore(0.f); //Una vez tenemos PlayerState actualizamos la puntuacion en pantalla
 			ShooterPlayerState->AddToDefeats(0);
+			SetTeamColor(ShooterPlayerState->GetTeam()); //Una vez tenemos PlayerState podemos saber en que equipo estamos y por tanto asignarnos un color
 
 			//Comprobamos si necesitamos la corona (en caso de ser los primeros de la partida)
 			AShooterGameState* ShooterGameState = Cast<AShooterGameState>(UGameplayStatics::GetGameState(this));
@@ -732,7 +760,7 @@ void AShooterCharacter::EquipButtonPressed()
 		{
 			//Donde unico se activa algo a nivel local al recoger un arma, es cuando no hay secundaria, por lo que es lo unico que comprobamos.
 			//(Si hay arma secundaria, se cambia el arma del suelo con la principal y no se activa el outline blanco)
-			if (OverlappingWeapon && Combat->SecondaryWeapon == nullptr)
+			if (OverlappingWeapon != nullptr && OverlappingWeapon->GetWeaponType() != EWeaponType::EWT_Flag && Combat->SecondaryWeapon == nullptr)
 			{
 				OverlappingWeapon->GetWeaponMesh()->SetCustomDepthStencilValue(CUSTOM_DEPTH_TAN);
 				OverlappingWeapon->GetWeaponMesh()->MarkRenderStateDirty();
@@ -1037,6 +1065,9 @@ void AShooterCharacter::HideCameraIfCharacterClose()
 	if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh()) {
 		Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = !MeshVisibility;
 	}
+	if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh()) {
+		Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = !MeshVisibility;
+	}
 
 	/*
 	*					FORMA MAS LEGIBLE (MENOS COMPACTA)
@@ -1067,7 +1098,7 @@ void AShooterCharacter::HideCameraIfCharacterClose()
 /*
 
 						Funcion que se llamaba en Projectile.cpp
-						Borrada porque no es recomendable hacer un multicast, en su lugar se ha
+						Borrada porque no es recomendable hacer un multicast
 
 void AShooterCharacter::MulticastHit_Implementation()
 {
@@ -1142,7 +1173,7 @@ void AShooterCharacter::UpdateHUDAmmo()
 */
 void AShooterCharacter::SpawnDefaultWeapon()
 {
-	AShooterGameMode* ShooterGameMode = Cast<AShooterGameMode>(UGameplayStatics::GetGameMode(this));
+	ShooterGameMode = ShooterGameMode == nullptr ? GetWorld()->GetAuthGameMode<AShooterGameMode>() : ShooterGameMode;
 	UWorld* World = GetWorld();
 	if (ShooterGameMode  && World && !bElimmed && DefaultWeaponClass)
 	{
@@ -1211,4 +1242,17 @@ bool AShooterCharacter::IsLocallyReloading()
 {
 	if (Combat == nullptr) return false;
 	return Combat->bLocallyReloading;
+}
+
+bool AShooterCharacter::IsHoldingTheFlag() const
+{
+	if (Combat == nullptr) return false;
+	return Combat->bHoldingTheFlag;
+}
+
+ETeam AShooterCharacter::GetTeam()
+{
+	ShooterPlayerState = ShooterPlayerState == nullptr ? Cast<AShooterPlayerState>(GetPlayerState()) : ShooterPlayerState;
+	if(ShooterPlayerState == nullptr) return ETeam::ET_NoTeam;
+	return ShooterPlayerState->GetTeam();
 }

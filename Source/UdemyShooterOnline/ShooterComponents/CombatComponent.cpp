@@ -14,7 +14,10 @@
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 #include "Sound/SoundCue.h"
+#include "UdemyShooterOnline/GameMode/TeamsGameMode.h"
+#include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
 #include "UdemyShooterOnline/Weapon/Shotgun.h"
+#include "UdemyShooterOnline/Weapon/Flag.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -40,6 +43,7 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 																			//A todos los clientes
 
 	DOREPLIFETIME(UCombatComponent, CombatState);
+	DOREPLIFETIME(UCombatComponent, bHoldingTheFlag);
 
 }
 
@@ -297,24 +301,45 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 			ECollisionChannel::ECC_Visibility
 		);
 		
-		//Si implementa la interfaz InteractWithCrosshair se entiende que es un enemigo 
+		//Si implementa la interfaz InteractWithCrosshair para ver si es enemigo o aliado
 		//(al momento de escribir esto solo ShooterCharacter implementa esa interfaz)
 
 		if (TraceHitResult.GetActor() && TraceHitResult.GetActor()->Implements<UInteractWithCrosshairsInterface>())
 		{
-
-		HUDPackage.CrosshairColor = FLinearColor::Red;
-
+			ATeamsGameMode* TeamGameMode = Cast<ATeamsGameMode>(Character->GetGameMode());
+			if (TeamGameMode) //Compruebo si estan en duelo por equipos
+			{
+				AShooterCharacter* CharacterAimed = Cast<AShooterCharacter>(TraceHitResult.GetActor());
+				if (CharacterAimed && CharacterAimed->GetPlayerState() && Character && Character->GetPlayerState())
+				{
+					ETeam AimedTeam = CharacterAimed->GetShooterPlayerState()->GetTeam();
+					ETeam OwnTeam = Character->GetShooterPlayerState()->GetTeam();
+					if (AimedTeam == OwnTeam) //Compruebo si son del mismo equipo
+					{
+						HUDPackage.CrosshairColor = FLinearColor::Green;
+					}
+					else
+					{
+						HUDPackage.CrosshairColor = FLinearColor::Red;
+					}
+				}
+				else
+				{
+					HUDPackage.CrosshairColor = FLinearColor::White; //si falla el if, no es un enemigo (al momento de escribir este codigo)
+				}
+			}
+			else //Si no estan en ese modo, todo Shooter Character es enemigo
+			{
+				HUDPackage.CrosshairColor = FLinearColor::Red;
+			}
 		}
 		else
 		{
 			HUDPackage.CrosshairColor = FLinearColor::White;
 		}
 
-		/*
-
 		//Por como funciona el LineTrace, si no ha chocado con nada, no se rellena el impact point, el cual es un vector2d
-		//Nosotros necesitamos esa informacion aunque no choque con nada para llevar los proyectiles (cohetes de un lanzacohetes), 
+		//Nosotros necesitamos esa informacion aunque no choque con nada para llevar los proyectiles (cohetes, granadas, balas etc...), 
 		//Asi que lo gestionamos manualmente
 		if (!TraceHitResult.bBlockingHit)
 		{
@@ -323,11 +348,7 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 		}else
 		{
 			HitTarget = TraceHitResult.ImpactPoint;
-
 		}
-
-		*/
-
 	}
 
 }
@@ -632,18 +653,30 @@ void UCombatComponent::EquipWeapon(AMasterWeapon* WeaponToEquip)
 	if (Character == nullptr || WeaponToEquip == nullptr) return;
 	if (CombatState != ECombatState::ECS_Unoccupied) return;
 
-	if (EquippedWeapon != nullptr && SecondaryWeapon == nullptr)
+	if (WeaponToEquip->GetWeaponType() == EWeaponType::EWT_Flag)
 	{
-		EquipSecondaryWeapon(WeaponToEquip);
+		AFlag* Flag = Cast<AFlag>(WeaponToEquip);
+		if (Flag)
+		{
+			EquipFlag(Flag);
+		}
 	}
 	else
 	{
-		EquipPrimaryWeapon(WeaponToEquip);
+
+		if (EquippedWeapon != nullptr && SecondaryWeapon == nullptr)
+		{
+			EquipSecondaryWeapon(WeaponToEquip);
+		}
+		else
+		{
+			EquipPrimaryWeapon(WeaponToEquip);
+		}
+
+		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
+		Character->bUseControllerRotationYaw = true;
+
 	}
-
-	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
-	Character->bUseControllerRotationYaw = true;
-
 }
 
 /*
@@ -700,6 +733,28 @@ void UCombatComponent::EquipSecondaryWeapon(AMasterWeapon* WeaponToEquip)
 	}
 }
 
+/*
+* Funcion que se ejecuta cuando se recoge una bandera
+*/
+void UCombatComponent::EquipFlag(AFlag* FlagToEquip)
+{
+	if (Character && Character->GetTeam() != ETeam::ET_NoTeam && FlagToEquip == nullptr) return;
+
+	if (FlagToEquip->GetTeam() == Character->GetTeam())
+	{
+		FlagToEquip->SetWeaponState(EWeaponState::EWS_Initial); //Al recoger una bandera de tu equipo, la devuelves a su base
+																//(al cambiar EWeaponState en MasterWeapon.cpp se ejecuta OnRep_WeaponState)
+	}
+	else
+	{
+		FlagEquipped = FlagToEquip;
+		AActor* Flag = Cast<AActor>(FlagToEquip);
+		FlagToEquip->SetWeaponState(EWeaponState::EWS_Equipped);
+		AttachFlagToBack(Flag);
+		FlagToEquip->SetOwner(Character);
+	}
+}
+
 void UCombatComponent::OnRep_Aiming()
 {
 	if (Character && Character->IsLocallyControlled())
@@ -750,6 +805,20 @@ void UCombatComponent::AttachActorToBack(AActor* ActorToAttach)
 	if (BackSocket)
 	{
 		BackSocket->AttachActor(ActorToAttach, Character->GetMesh());
+	}
+}
+
+/*
+* Function that attach the flag given by param to the back of the character using the socket "FlagSocket"
+*/
+void UCombatComponent::AttachFlagToBack(AActor* FlagToAttach)
+{
+	if (Character == nullptr || Character->GetMesh() == nullptr || FlagToAttach == nullptr) return;
+	
+	const USkeletalMeshSocket* FlagSocket = Character->GetMesh()->GetSocketByName(FName("FlagSocket"));
+	if (FlagSocket)
+	{
+		FlagSocket->AttachActor(FlagToAttach, Character->GetMesh());
 	}
 }
 

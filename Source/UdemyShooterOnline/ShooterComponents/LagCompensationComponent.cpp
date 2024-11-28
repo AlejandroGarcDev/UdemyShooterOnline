@@ -126,17 +126,19 @@ FFramePackage ULagCompensationComponent::GetFrameToCheck(AShooterCharacter* HitC
 /*
 * Funcion que se ejecuta en el servidor para verificar un hit en un character
 */
-void ULagCompensationComponent::ServerScoreRequest_Implementation(AShooterCharacter* HitCharacter, const FVector_NetQuantize& TraceStart, const FVector_NetQuantize& HitLocation, float HitTime, AMasterWeapon* DamageCauser)
+void ULagCompensationComponent::ServerScoreRequest_Implementation(AShooterCharacter* HitCharacter, const FVector_NetQuantize& TraceStart, const FVector_NetQuantize& HitLocation, float HitTime)
 {
 	FServerSideRewindResult Confirm = ServerSideRewind(HitCharacter, TraceStart, HitLocation, HitTime);
 
-	if (Character && HitCharacter && DamageCauser && Confirm.bHitConfirmed)
+	if (Character && HitCharacter && Character->GetEquippedWeapon() && Confirm.bHitConfirmed)
 	{
+		const float Damage = Confirm.bHeadShot ? Character->GetEquippedWeapon()->GetHeadShotDamage() : Character->GetEquippedWeapon()->GetDamage();
+
 		UGameplayStatics::ApplyDamage(
 			HitCharacter,
-			DamageCauser->GetDamage(),
+			Damage,
 			Character->Controller,
-			DamageCauser,
+			Character->GetEquippedWeapon(),
 			UDamageType::StaticClass()
 		);
 	}
@@ -157,7 +159,7 @@ void ULagCompensationComponent::ShotgunServerScoreRequest_Implementation(const T
 
 		if (Confirm.HeadShot.Contains(HitCharacter))
 		{
-			float HeadShotDamage = Confirm.HeadShot[HitCharacter] * Character->GetEquippedWeapon()->GetDamage();
+			float HeadShotDamage = Confirm.HeadShot[HitCharacter] * Character->GetEquippedWeapon()->GetHeadShotDamage();
 			TotalDmg += HeadShotDamage;
 		}
 		if (Confirm.BodyShot.Contains(HitCharacter))
@@ -185,26 +187,14 @@ void ULagCompensationComponent::ProjectileServerScoreRequest_Implementation(ASho
 {
 	FServerSideRewindResult Confirm = ProjectileServerSideRewind(HitCharacter, TraceStart, InitialVelocity, HitTime);
 
-	if (Character)
+	if (Character && HitCharacter && Confirm.bHitConfirmed && Character->GetEquippedWeapon())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Character valido"));
-	}
-	if (HitCharacter)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("HitChar valido"));
-	}
-	if (Confirm.bHitConfirmed)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Confirm valido"));
-	}
-
-	if (Character && HitCharacter && Confirm.bHitConfirmed)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Entra en el if"));
+	
+		const float Damage = Confirm.bHeadShot ? Character->GetEquippedWeapon()->GetHeadShotDamage() : Character->GetEquippedWeapon()->GetDamage();
 
 		UGameplayStatics::ApplyDamage(
 			HitCharacter,
-			Character->GetEquippedWeapon()->GetDamage(),
+			Damage,
 			Character->Controller,
 			Character->GetEquippedWeapon(),
 			UDamageType::StaticClass()

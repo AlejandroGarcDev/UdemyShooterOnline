@@ -8,6 +8,7 @@
 #include "UdemyShooterOnline/ShooterTypes/TurningInPlace.h"
 #include "UdemyShooterOnline/Interfaces/InteractWithCrosshairsInterface.h"
 #include "UdemyShooterOnline/ShooterTypes/CombatState.h"
+#include "UdemyShooterOnline/ShooterTypes/Team.h"
 #include "ShooterCharacter.generated.h"
 
 class UInputMappingContext;
@@ -98,6 +99,8 @@ public:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastLostTheLead();
+
+	void SetTeamColor(ETeam Team);
 
 protected:
 	// Called when the game starts or when spawned
@@ -342,6 +345,35 @@ private:
 	class AShooterPlayerController* ShooterPlayerController;
 
 	/**
+	* Team Colors
+	*/
+
+	//El personaje de Unreal utiliza dos instancias de materiales, este es el material para el elemento 0 Equipo Rojo
+	UPROPERTY(EditAnywhere)
+	UMaterialInstance* RedTeam_ColorInstance_01;
+
+	//El personaje de Unreal utiliza dos instancias de materiales, este es el material para el elemento 1 Equipo Rojo
+	UPROPERTY(EditAnywhere)
+	UMaterialInstance* RedTeam_ColorInstance_02;
+
+	//El personaje de Unreal utiliza dos instancias de materiales, este es el material para el elemento 0 Equipo Azul
+	UPROPERTY(EditAnywhere)
+	UMaterialInstance* BlueTeam_ColorInstance_01;
+
+	//El personaje de Unreal utiliza dos instancias de materiales, este es el material para el elemento 1 Equipo Azul
+	UPROPERTY(EditAnywhere)
+	UMaterialInstance* BlueTeam_ColorInstance_02;
+
+	//El personaje de Unreal utiliza dos instancias de materiales, este es el material para el elemento 0 Sin Equipo
+	UPROPERTY(EditAnywhere)
+	UMaterialInstance* NoTeam_ColorInstance_01;
+
+	//El personaje de Unreal utiliza dos instancias de materiales, este es el material para el elemento 1 Sin Equipo
+	UPROPERTY(EditAnywhere)
+	UMaterialInstance* NoTeam_ColorInstance_02;
+
+
+	/**
 	* Elim Effects
 	*/
 
@@ -376,6 +408,9 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<AMasterWeapon> DefaultWeaponClass;
+
+	UPROPERTY()
+	class AShooterGameMode* ShooterGameMode;
 
 public:
 
@@ -415,5 +450,11 @@ public:
 	bool IsLocallyReloading();
 
 	FORCEINLINE ULagCompensationComponent* GetLagCompensation() const { return LagCompensation; }
+	FORCEINLINE AShooterGameMode* GetGameMode() const { return ShooterGameMode; }
+	FORCEINLINE AShooterPlayerState* GetShooterPlayerState() const { return ShooterPlayerState; }
+
+	FORCEINLINE bool IsHoldingTheFlag() const;
+	
+	ETeam GetTeam();
 };
 

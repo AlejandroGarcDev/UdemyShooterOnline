@@ -13,6 +13,7 @@
 #include "UdemyShooterOnline/Character/ShooterCharacter.h"
 #include "UdemyShooterOnline/PlayerController/ShooterPlayerController.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "UdemyShooterOnline/Weapon/Flag.h"
 
 // Sets default values
 AMasterWeapon::AMasterWeapon() 
@@ -143,7 +144,25 @@ void AMasterWeapon::OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, AA
 	AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(OtherActor);
 	if (ShooterCharacter)
 	{
-		ShooterCharacter->SetOverlappingWeapon(this);
+		//Comprobamos si es una bandera, si lo es la logica en la siguiente:
+		//Estado inicial->Bandera en la base == Solo los del equipo enemigo pueden cogerla
+		//Estado equipped->En la espalda de un enemigo == No la puede coger nadie (colisiones desactivadas asi que esta opcion nunca aparecera)
+		//Estado dropped->Esta en el suelo (tras matar al portador) == Todos pueden cogerla, pero dependiendo de que equipo lo haga su funcion cambia (CombatComponent->EquipWeapon)
+		if (WeaponType == EWeaponType::EWT_Flag)
+		{
+			if (WeaponState == EWeaponState::EWS_Initial && ShooterCharacter->GetTeam() != Team)
+			{
+				ShooterCharacter->SetOverlappingWeapon(this);
+			}
+			else if (WeaponState == EWeaponState::EWS_Dropped)
+			{
+				ShooterCharacter->SetOverlappingWeapon(this);
+			}
+		}
+		else
+		{
+			ShooterCharacter->SetOverlappingWeapon(this);
+		}
 	}
 }
 
@@ -152,6 +171,7 @@ void AMasterWeapon::OnSphereEndOverlap(UPrimitiveComponent* OverlappedComponent,
 	AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(OtherActor);
 	if (ShooterCharacter)
 	{
+		if (WeaponType == EWeaponType::EWT_Flag && ShooterCharacter->GetTeam() != Team) return;
 		ShooterCharacter->SetOverlappingWeapon(nullptr);
 	}
 }
@@ -250,6 +270,13 @@ void AMasterWeapon::OnWeaponStateSet()
 	case EWeaponState::EWS_Dropped:
 		OnDropped();
 		break;
+	case EWeaponState::EWS_Initial:
+		AFlag* Flag = Cast<AFlag>(this);
+		if (Flag)
+		{
+			Flag->SetActorLocation(Flag->InitialPosition);
+			Flag->SetActorRotation(FQuat(FRotator(0.f, 0.f, 0.f)));
+		}
 	}
 
 }
@@ -336,7 +363,7 @@ void AMasterWeapon::OnEquippedSecondary()
 
 
 /*
-* Funcion que ejecuta la logica cuando un arma pasa a dropped
+* Funcion que ejecuta la logica cuando un arma pasa a dropped (Ver OnWeaponState)
 * 1) Habilita colisiones
 * 2) Activa gravedad y fisicas
 * 3) Desactiva colisiones con pawn y camera (para que no se trabe al soltar el arma con ninguno de los dos)
@@ -421,6 +448,9 @@ void AMasterWeapon::Fire(const FVector& HitTarget)
 	SpendRound();
 }
 
+/*
+* Funcion que se ejecuta en el servidor al tirar un arma
+*/
 void AMasterWeapon::Dropped()
 {
 	//EWeaponState es una variable replicada, eso quiere decir que si la llamamos desde el servidor se propaga al resto de clientes de forma automatica
@@ -429,11 +459,8 @@ void AMasterWeapon::Dropped()
 	FDetachmentTransformRules DetachRules(EDetachmentRule::KeepWorld, true);
 
 	WeaponMesh->DetachFromComponent(DetachRules);
-
 	SetOwner(nullptr);
-
 	ShooterOwnerCharacter = nullptr;
-
 	ShooterOwnerController = nullptr;
 }
 

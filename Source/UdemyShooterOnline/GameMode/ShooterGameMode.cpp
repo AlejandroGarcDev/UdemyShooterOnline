@@ -37,7 +37,7 @@ void AShooterGameMode::OnMatchStateSet()
 		AShooterPlayerController* ShooterPlayer = Cast<AShooterPlayerController>(*It);
 		if (ShooterPlayer)
 		{
-			ShooterPlayer->OnMatchStateSet(MatchState);
+			ShooterPlayer->OnMatchStateSet(MatchState, bTeamsMatch);
 		}
 	}
 }
@@ -177,4 +177,9 @@ void AShooterGameMode::PlayerLeftGame(AShooterPlayerState* PlayerLeaving)
 	{
 		CharacterLeaving->Elim(true);
 	}
+}
+
+float AShooterGameMode::CalculateDamage(AController* Attacker, AController* Victim, float BaseDamage)
+{
+	return BaseDamage;
 }

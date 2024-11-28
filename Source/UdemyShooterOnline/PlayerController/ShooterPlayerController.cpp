@@ -19,6 +19,7 @@
 #include "UdemyShooterOnline/PlayerState/ShooterPlayerState.h"
 #include "Components/Image.h"
 #include "UdemyShooterOnline/HUD/ReturnToMainMenu.h"
+#include "UdemyShooterOnline/ShooterTypes/Announcement.h"
 
 
 void AShooterPlayerController::BeginPlay()
@@ -126,6 +127,22 @@ void AShooterPlayerController::ShowReturnToMainMenu()
 	}
 }
 
+/*
+* Esta funcion se ejecuta cuando la variable ShowTeamScore cambia, la cual se pondra a true cuando este en un game mode de equipos
+* Por lo que esta funcion lo que hace es activar el HUD que muestra la puntuacion de los equipos
+*/
+void AShooterPlayerController::OnRep_ShowTeamScores()
+{
+	if (bShowTeamScores)
+	{
+		InitTeamScores();
+	}
+	else
+	{
+		HideTeamScores();
+	}
+}
+
 //Is the ping too high?
 void AShooterPlayerController::ServerReportPingStatus_Implementation(bool bHighPing)
 {
@@ -137,6 +154,7 @@ void AShooterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AShooterPlayerController, MatchState);
+	DOREPLIFETIME(AShooterPlayerController, bShowTeamScores);
 
 }
 
@@ -307,7 +325,7 @@ void AShooterPlayerController::SetHUDWeaponType(EWeaponType WeaponEquipped)
 	//Comprobamos que existe WeaponEquipped
 	if (ShooterHUD &&										//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
 		ShooterHUD->CharacterOverlay &&						//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
-		ShooterHUD->CharacterOverlay->WeaponEquipped)	//Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		ShooterHUD->CharacterOverlay->WeaponEquipped)	    //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
 	{
 
 		FText SWeaponEquipped = UEnum::GetDisplayValueAsText<EWeaponType>(WeaponEquipped);
@@ -384,7 +402,7 @@ void AShooterPlayerController::SetHUDTime()
 	//Si esa resta se la vamos restando a WarmupTime tenemos el tiempo restante para que la partida pase de fase (In progress)
 	if (MatchState == MatchState::WaitingToStart) TimeLeft = WarmupTime - GetServerTime() + LevelStartingTime;
 	else if (MatchState == MatchState::InProgress) TimeLeft = WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
-	else if (MatchState == MatchState::Cooldown) TimeLeft = CooldownTime + MatchTime - GetServerTime() + LevelStartingTime;
+	else if (MatchState == MatchState::Cooldown) TimeLeft = CooldownTime + WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
 	uint32 SecondsLeft = FMath::CeilToInt(TimeLeft);
 
 	if (HasAuthority())
@@ -599,14 +617,14 @@ void AShooterPlayerController::ReceivedPlayer()
 * Funcion que se ejecuta en el servidor (se llama en GameMode --> Servidor)
 * Indica el estado de la partida (iniciado, esperando para jugar, jugando, finalizado, abortado)
 */
-void AShooterPlayerController::OnMatchStateSet(FName State)
+void AShooterPlayerController::OnMatchStateSet(FName State, bool bTeamsMatch)
 {
-	MatchState = State;
+	MatchState = State; //Al cambiar State se ejecuta la funcion OnRep_MatchState (que tiene la misma logica que esta funcion)
 
 	//Comprueba si la partida ha empezado y añade por pantalla el HUD el personaje
 	if (MatchState == MatchState::InProgress)
 	{
-		HandleMatchHasStarted();
+		HandleMatchHasStarted(bTeamsMatch);
 	}
 	else if(MatchState == MatchState::Cooldown)
 	{
@@ -636,8 +654,12 @@ void AShooterPlayerController::OnRep_MatchState()
 * 1) Crear el HUD in game
 * 2) Invisibilizar el HUD de espera
 */
-void AShooterPlayerController::HandleMatchHasStarted()
+void AShooterPlayerController::HandleMatchHasStarted(bool bTeamsMatch)
 {
+	if(HasAuthority())
+	bShowTeamScores = bTeamsMatch; //Asignamos el valor de bTeamsMatch a ShowTeamScores, esta variable es replicada y hace que los clientes 
+								   //activen el HUD encargado de mostrar las puntuaciones de los equipos (Ver OnRep_ShowTeamScores)
+
 	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
 
 	if (ShooterHUD)
@@ -650,6 +672,18 @@ void AShooterPlayerController::HandleMatchHasStarted()
 		if (ShooterHUD->Announcement)
 		{
 			ShooterHUD->Announcement->SetVisibility(ESlateVisibility::Hidden);
+		}
+
+		if (!HasAuthority()) return; //Al asignar el HUD de los equipos en cada cliente mediante OnRep_ShowTeamScores, si eres un cliente, no hace falta que ejecutes
+								     //Las lineas de abajo
+
+		if (bTeamsMatch)
+		{
+			InitTeamScores();
+		}
+		else
+		{
+			HideTeamScores();
 		}
 	}
 }
@@ -670,9 +704,14 @@ void AShooterPlayerController::HandleCooldown()
 			ShooterHUD->Announcement->AnnouncementText &&
 			ShooterHUD->Announcement->InfoText)
 		{
+			if (ShooterHUD->Announcement && ShooterHUD->Announcement->WarmupTime)
+			{
+				ShooterHUD->Announcement->WarmupTime->SetVisibility(ESlateVisibility::Visible);
+			}
+
 			ShooterHUD->Announcement->SetVisibility(ESlateVisibility::Visible);
 
-			FString AnnouncementText("New Match Starts In:");
+			FString AnnouncementText = Announcement::NewMatchStartsIn; //Announcement es un namespace de la clase Announcement.h
 			ShooterHUD->Announcement->AnnouncementText->SetText(FText::FromString(AnnouncementText));
 			
 			//Recogemos el valor del GameState, ya que aqui se guardan el ganador de la partida
@@ -683,28 +722,7 @@ void AShooterPlayerController::HandleCooldown()
 			if (ShooterGameState && ShooterPlayerState)
 			{
 				TArray<AShooterPlayerState*> TopPlayers = ShooterGameState->TopScoringPlayers;
-				FString InfoTextString;
-				if (TopPlayers.Num() == 0)
-				{
-					InfoTextString = FString("No Winner");
-				}
-				else if (TopPlayers.Num() == 1 && TopPlayers[0] == ShooterPlayerState)
-				{
-					InfoTextString = FString("You are the winner!");
-				}
-				else if (TopPlayers.Num() == 1)
-				{
-					InfoTextString = FString::Printf(TEXT("Winner: \n%s"), *TopPlayers[0]->GetPlayerName());
-				}
-				else if (TopPlayers.Num() > 1)
-				{
-					InfoTextString = FString("Players tied for the win: \n");
-					//recorremos los jugadores ganadores
-					for (auto TiedPlayer : TopPlayers)
-					{
-						InfoTextString.Append(FString::Printf(TEXT("%s\n"), *TiedPlayer->GetPlayerName()));
-					}
-				}
+				FString InfoTextString = bShowTeamScores ? GetTeamsInfoText(ShooterGameState) : GetInfoText(TopPlayers);
 
 				ShooterHUD->Announcement->InfoText->SetText(FText::FromString(InfoTextString));
 			}
@@ -718,6 +736,76 @@ void AShooterPlayerController::HandleCooldown()
 		ShooterCharacter->GetCombatComponent()->FireButtonPressed(false); //Si esta disparando cuando acaba la partida se pone a false a la fuerza
 	}
 
+}
+
+FString AShooterPlayerController::GetInfoText(const TArray<class AShooterPlayerState*>& Players)
+{
+	//Recogemos el valor del playerState del cliente, asi podemos comprobar si hemos ganado nosotros
+	AShooterPlayerState* ShooterPlayerState = GetPlayerState<AShooterPlayerState>();
+	if (ShooterPlayerState == nullptr) return FString();
+
+	FString InfoTextString;
+	if (Players.Num() == 0)
+	{
+		InfoTextString = Announcement::ThereIsNoWinner; //Announcement es un namespace de la clase Announcement.h
+	}
+	else if (Players.Num() == 1 && Players[0] == ShooterPlayerState)
+	{
+		InfoTextString = Announcement::YouAreTheWinner; //Announcement es un namespace de la clase Announcement.h
+	}
+	else if (Players.Num() == 1)
+	{
+		InfoTextString = FString::Printf(TEXT("Winner: \n%s"), *Players[0]->GetPlayerName());
+	}
+	else if (Players.Num() > 1)
+	{
+		InfoTextString = Announcement::PlayersTiedForTheWin; //Announcement es un namespace de la clase Announcement.h
+		InfoTextString.Append(FString("\n"));
+
+		//recorremos los jugadores ganadores
+		for (auto TiedPlayer : Players)
+		{
+			InfoTextString.Append(FString::Printf(TEXT("%s\n"), *TiedPlayer->GetPlayerName()));
+		}
+	}
+	return InfoTextString;
+}
+
+FString AShooterPlayerController::GetTeamsInfoText(AShooterGameState* ShooterGameState)
+{
+	if (ShooterGameState == nullptr) return FString();
+	FString InfoTextString;
+
+	const uint32 RedTeamScore = ShooterGameState->RedTeamScore;
+	const uint32 BlueTeamScore = ShooterGameState->BlueTeamScore;
+
+	if (RedTeamScore == 0 && BlueTeamScore == 0)
+	{
+		InfoTextString = Announcement::ThereIsNoWinner;
+	}
+	else if (RedTeamScore == BlueTeamScore)
+	{
+		InfoTextString = FString::Printf(TEXT("%s\n"), *Announcement::TeamsTiedforTheWin);
+		InfoTextString.Append(Announcement::RedTeam);
+		InfoTextString.Append(TEXT("\n"));
+		InfoTextString.Append(Announcement::BlueTeam);
+		InfoTextString.Append(TEXT("\n"));
+	}
+	else if (RedTeamScore > BlueTeamScore)
+	{
+		InfoTextString = Announcement::RedTeamWins;
+		InfoTextString.Append(TEXT("\n"));
+		InfoTextString.Append(FString::Printf(TEXT("%s: %d\n"), *Announcement::RedTeam, RedTeamScore));
+		InfoTextString.Append(FString::Printf(TEXT("%s: %d\n"), *Announcement::BlueTeam, BlueTeamScore));
+	}
+	else if (BlueTeamScore > RedTeamScore)
+	{
+		InfoTextString = Announcement::BlueTeamWins;
+		InfoTextString.Append(TEXT("\n"));
+		InfoTextString.Append(FString::Printf(TEXT("%s: %d\n"), *Announcement::BlueTeam, BlueTeamScore));
+		InfoTextString.Append(FString::Printf(TEXT("%s: %d\n"), *Announcement::RedTeam, RedTeamScore));
+	}
+	return InfoTextString;
 }
 
 float AShooterPlayerController::GetPing()
@@ -775,5 +863,67 @@ void AShooterPlayerController::ClientElimAnnouncement_Implementation(APlayerStat
 			//Caso General:
 			ShooterHUD->AddElimAnnouncement(Attacker->GetPlayerName(), Victim->GetPlayerName());
 		}
+	}
+}
+
+void AShooterPlayerController::HideTeamScores()
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->RedTeamScore &&   //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		ShooterHUD->CharacterOverlay->BlueTeamScore &&
+		ShooterHUD->CharacterOverlay->ScoreSpacerText)
+	{
+		ShooterHUD->CharacterOverlay->RedTeamScore->SetText(FText());
+		ShooterHUD->CharacterOverlay->BlueTeamScore->SetText(FText());
+		ShooterHUD->CharacterOverlay->ScoreSpacerText->SetText(FText());
+	}
+}
+
+void AShooterPlayerController::InitTeamScores()
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->RedTeamScore &&   //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		ShooterHUD->CharacterOverlay->BlueTeamScore &&
+		ShooterHUD->CharacterOverlay->ScoreSpacerText)
+	{
+		FString Zero("0");
+		FString Spacer("/");
+		ShooterHUD->CharacterOverlay->RedTeamScore->SetText(FText::FromString(Zero));
+		ShooterHUD->CharacterOverlay->BlueTeamScore->SetText(FText::FromString(Zero));
+		ShooterHUD->CharacterOverlay->ScoreSpacerText->SetText(FText::FromString(Spacer));
+	}
+}
+
+void AShooterPlayerController::SetHUDRedTeamScore(uint32 RedScore)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->RedTeamScore      //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		)
+	{
+		FString Score = FString::Printf(TEXT("%d"), RedScore);
+		ShooterHUD->CharacterOverlay->RedTeamScore->SetText(FText::FromString(Score));
+	}
+}
+
+void AShooterPlayerController::SetHUDBlueTeamScore(uint32 BlueScore)
+{
+	ShooterHUD = ShooterHUD == nullptr ? GetHUD<AShooterHUD>() : ShooterHUD;
+
+	if (ShooterHUD &&									//Tener en cuenta que para evitar nullptr exception primero check del ShooterHUD, si existe,
+		ShooterHUD->CharacterOverlay &&					//Comprobamos si existe la variable dentro de ShooterHUD y, si finalmente existe esa variable,
+		ShooterHUD->CharacterOverlay->BlueTeamScore     //Comprobamos la variables dentro de CharacterOverlay. Alterar este orden puede provocar nullptr except.
+		)
+	{
+		FString Score = FString::Printf(TEXT("%d"), BlueScore);
+		ShooterHUD->CharacterOverlay->BlueTeamScore->SetText(FText::FromString(Score));
 	}
 }

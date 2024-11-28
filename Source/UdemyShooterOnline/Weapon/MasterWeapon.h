@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "WeaponTypes.h"
+#include "UdemyShooterOnline/ShooterTypes/Team.h"
 #include "MasterWeapon.generated.h"
 
 UENUM(BlueprintType)
@@ -52,7 +53,7 @@ public:
 												 //Usamos virtual para decirle al compilador que es una funcion que se sobrescribe en las clases hijo
 
 
-	void Dropped();
+	virtual void Dropped();
 
 	void AddAmmo(int32 AmmoToAdd);
 
@@ -247,12 +248,15 @@ private:
 	UPROPERTY(EditAnywhere)
 	EWeaponType WeaponType;
 
+	UPROPERTY(EditAnywhere)
+	ETeam Team;
 public:	
 
 	void SetWeaponState(EWeaponState State);
 
 	FORCEINLINE USphereComponent* GetAreaSphere() const { return AreaSphere; }
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return WeaponMesh; }
+	FORCEINLINE UWidgetComponent* GetPickupWidget() const { return PickupWidget; }
 	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
 	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
 	FORCEINLINE float GetCrosshairShootingSpread() const { return CrosshairShootingSpread; }
@@ -265,4 +269,5 @@ public:
 	FORCEINLINE int32 GetMagCapacity() const { return MagCapacity; }
 	FORCEINLINE float GetDamage() const { return Damage; }
 	FORCEINLINE float GetHeadShotDamage() const { return HeadShotDamage; }
+	FORCEINLINE ETeam GetTeam() const { return Team; }
 };
