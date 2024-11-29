@@ -191,8 +191,8 @@ protected:
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, class AController* InstigatorController,AActor* DamageCauser);
 
 	void CameraBoomCrouch(float DeltaTime);
-
 	void DropOrDestroyWeapon(AMasterWeapon* Weapon);
+	void SetSpawnPoint();
 
 	/*
 	* Funcion que se ejecuta en Tick

@@ -290,6 +290,8 @@ FServerSideRewindResult ULagCompensationComponent::ConfirmHit(const FFramePackag
 
 			if (ConfirmHitResult.bBlockingHit)
 			{
+				/*		Quitar comentario si se quiere ver: En servidor se verá como el Character ha sido golpeado en una box component (que no sea la cabeza, ese caso esta mas arriba en esta funcion)
+				
 				if (ConfirmHitResult.Component.IsValid())
 				{
 					UBoxComponent* Box = Cast<UBoxComponent>(ConfirmHitResult.Component);
@@ -298,6 +300,8 @@ FServerSideRewindResult ULagCompensationComponent::ConfirmHit(const FFramePackag
 						DrawDebugBox(GetWorld(), Box->GetComponentLocation(), Box->GetScaledBoxExtent(), FQuat(Box->GetComponentRotation()), FColor::Blue, false, 8.f);
 					}
 				}
+
+				*/
 
 
 				ResetHitBoxes(HitCharacter, CurrentFrame);

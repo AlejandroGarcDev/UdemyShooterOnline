@@ -29,6 +29,7 @@
 #include "NiagaraFunctionLibrary.h"
 #include "UdemyShooterOnline/GameState/ShooterGameState.h"
 #include "UdemyShooterOnline/Weapon/Flag.h"
+#include "UdemyShooterOnline/PlayerStart/TeamPlayerStart.h"
 
 
 // Sets default values
@@ -456,6 +457,37 @@ void AShooterCharacter::DropOrDestroyWeapon(AMasterWeapon* Weapon)
 	}
 }
 
+/*
+* Funcion que se ejecuta en el instante despues de asignar equipo al character (PollInit()), esta funcion asigna un punto de reaparicion en funcion del equipo asignado
+*/
+void AShooterCharacter::SetSpawnPoint()
+{
+	if (HasAuthority() && ShooterPlayerState && ShooterPlayerState->GetTeam() != ETeam::ET_NoTeam) //Si somos el server y este character tiene un equipo asignado...
+	{
+		TArray<AActor*> PlayerStarts;
+		UGameplayStatics::GetAllActorsOfClass(this, ATeamPlayerStart::StaticClass(), PlayerStarts); //(Actor del mundo, actores a localizar, donde guardar los actores)
+		TArray<ATeamPlayerStart*> TeamPlayerStarts;
+		for (auto Start : PlayerStarts)
+		{
+			ATeamPlayerStart* TeamStart = Cast<ATeamPlayerStart>(Start);
+			if (TeamStart && TeamStart->Team == ShooterPlayerState->GetTeam()) //Si el TeamStart es del equipo del character, se guarda como posible spawn
+			{
+				TeamPlayerStarts.Add(TeamStart);
+			}
+		}
+
+		if (TeamPlayerStarts.Num()>0) //Si existen Spawns del mismo equipo...
+		{
+			ATeamPlayerStart* ChosenPlayerStart = TeamPlayerStarts[FMath::RandRange(0, TeamPlayerStarts.Num() - 1)]; //Escoge uno aleatorio
+			SetActorLocationAndRotation(
+				ChosenPlayerStart->GetActorLocation(),
+				ChosenPlayerStart->GetActorRotation()
+			);
+		}
+	}
+
+}
+
 
 // Called to bind functionality to input
 void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -704,6 +736,7 @@ void AShooterCharacter::PollInit()
 			ShooterPlayerState->AddToScore(0.f); //Una vez tenemos PlayerState actualizamos la puntuacion en pantalla
 			ShooterPlayerState->AddToDefeats(0);
 			SetTeamColor(ShooterPlayerState->GetTeam()); //Una vez tenemos PlayerState podemos saber en que equipo estamos y por tanto asignarnos un color
+			SetSpawnPoint();
 
 			//Comprobamos si necesitamos la corona (en caso de ser los primeros de la partida)
 			AShooterGameState* ShooterGameState = Cast<AShooterGameState>(UGameplayStatics::GetGameState(this));

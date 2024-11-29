@@ -35,7 +35,8 @@ void UOverheadWidget::ShowPlayerNetRole(APawn* InPawn)
 	}
 	FString RemoteRoleString = FString::Printf(TEXT("Local Role: %s"),*Role);
 	RemoteRoleString.Append(ShowPlayerName(InPawn->GetPlayerState()));
-	SetDisplayText(RemoteRoleString);
+	
+	//SetDisplayText(RemoteRoleString); Poner esta linea si se quiere saber el rol de cada jugador a en cada maquina
 }
 
 FString UOverheadWidget::ShowPlayerName(APlayerState* PS)

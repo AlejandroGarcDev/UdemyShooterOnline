@@ -7,6 +7,7 @@
 
 void AProjectileWeapon::Fire(const FVector& HitTarget)
 {
+	UE_LOG(LogTemp, Warning, TEXT("ProjectileFire -> HitTarget : (%f,%f,%f)"), HitTarget.X, HitTarget.Y, HitTarget.Z);
 	Super::Fire(HitTarget); //No excluimos el codigo del padre (Weapon.cpp)
 
 	APawn* InstigatorPawn = Cast<APawn>(GetOwner());

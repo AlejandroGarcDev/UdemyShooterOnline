@@ -44,8 +44,9 @@ void AProjectileRocket::PostEditChangeProperty(FPropertyChangedEvent& Event)
 
 void AProjectileRocket::Destroyed()
 {
+	ExplodeDamage();
 
-
+	Super::Destroyed();
 }
 
 void AProjectileRocket::BeginPlay()
@@ -59,6 +60,7 @@ void AProjectileRocket::BeginPlay()
 
 	SpawnTrailSystem();
 
+	StartDestroyTimer();
 }
 
 /*

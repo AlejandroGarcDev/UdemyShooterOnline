@@ -142,6 +142,9 @@ void AShooterGameMode::PlayerEliminited(AShooterCharacter* ElimmedCharacter, ASh
 	}
 }
 
+/*
+* Funcion que spawnea un character en un PlayerStart elegido de forma aleatoria
+*/
 void AShooterGameMode::RequestRespawn(ACharacter* ElimmedCharacter, AController* ElimmedController)
 {
 	if (ElimmedCharacter)

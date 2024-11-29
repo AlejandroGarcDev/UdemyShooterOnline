@@ -3,6 +3,7 @@
 
 #include "LobbyGameMode.h"
 #include "GameFramework/GameStateBase.h"
+#include "MultiplayerSessionsSubsystem.h"
 
 void ALobbyGameMode::PostLogin(APlayerController* NewPlayer)
 {
@@ -10,17 +11,37 @@ void ALobbyGameMode::PostLogin(APlayerController* NewPlayer)
 
 	//Recogemos el numero de jugadores unidos en la sesion
 	int32 NumberOfPlayers = GameState.Get()->PlayerArray.Num();
-	//Si ha llegado al numero de jugadores viajamos del lobby al mapa deseado
-	if (NumberOfPlayers == 2)
-	{
-		//Recogemos el mundo para decirle que viaje
-		UWorld* World = GetWorld();
-		if (World)
-		{
-			//Utilizamos viaje seamless (cliente no se desconecta del servidor al cambiar de mapa)
-			bUseSeamlessTravel = true;
 
-			World->ServerTravel(FString("/Game/Maps/GameMap1?listen"));
+	UGameInstance* GameInstance = GetGameInstance();
+	if (GameInstance)
+	{
+		UMultiplayerSessionsSubsystem* Subsystem = GameInstance->GetSubsystem<UMultiplayerSessionsSubsystem>();
+		check(Subsystem);
+
+		//Si ha llegado al numero de jugadores viajamos del lobby al mapa deseado
+		if (NumberOfPlayers == Subsystem->DesiredNumPublicConnections)
+		{
+			//Recogemos el mundo para decirle que viaje
+			UWorld* World = GetWorld();
+			if (World)
+			{
+				//Utilizamos viaje seamless (cliente no se desconecta del servidor al cambiar de mapa)
+				bUseSeamlessTravel = true;
+
+				FString MatchType = Subsystem->DesiredMatchType;
+				if (MatchType == "FreeForAll")
+				{
+					World->ServerTravel(FString("/Game/Maps/FreeForAll?listen"));
+				}
+				else if (MatchType == "Teams")
+				{
+					World->ServerTravel(FString("/Game/Maps/TeamDeathMatch?listen"));
+				}
+				else if (MatchType == "CaptureTheFlag")
+				{
+					World->ServerTravel(FString("/Game/Maps/CaptureTheFlag?listen"));
+				}
+			}
 		}
 	}
 }

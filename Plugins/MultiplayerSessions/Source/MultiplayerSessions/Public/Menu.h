@@ -55,7 +55,13 @@ private:
 	//The subsystem designed in this plugin to handle all online session functionality
 	class UMultiplayerSessionsSubsystem* MultiplayerSessionsSubsystem;
 
+	//Al poner AllowPrivateAccess = "true" podemos editarlo desde el menu de blueprints aunque este en privado
+	UPROPERTY(BlueprintReadWrite, meta = (AllowPrivateAccess = "true"))
 	int32 NumPublicConnections { 4 };
+
+	//Al poner AllowPrivateAccess = "true" podemos editarlo desde el menu de blueprints aunque este en privado
+	UPROPERTY(BlueprintReadWrite, meta = (AllowPrivateAccess ="true"))
 	FString MatchType{TEXT("FreeForAll")};
+
 	FString PathtoLobby{""};
 };

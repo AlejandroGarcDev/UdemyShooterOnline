@@ -156,7 +156,7 @@ protected:
 	virtual void OnEquippedSecondary();
 
 	virtual void OnDropped();
-
+	
 	//Esta funcion es la que nos indicara cuando el jugador esta dentro del area del arma para recogerla
 	//Los parametros de entrada vienen dados por el padre AActor
 	UFUNCTION()

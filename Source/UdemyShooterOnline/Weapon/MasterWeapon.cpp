@@ -276,6 +276,12 @@ void AMasterWeapon::OnWeaponStateSet()
 		{
 			Flag->SetActorLocation(Flag->InitialPosition);
 			Flag->SetActorRotation(FQuat(FRotator(0.f, 0.f, 0.f)));
+			Flag->SetOwner(nullptr);
+			FDetachmentTransformRules DetachRules(EDetachmentRule::KeepWorld, true);
+			Flag->GetWeaponMesh()->DetachFromComponent(DetachRules);
+			Flag->SetOwner(nullptr);
+			ShooterOwnerCharacter = nullptr;
+			ShooterOwnerController = nullptr;
 		}
 	}
 

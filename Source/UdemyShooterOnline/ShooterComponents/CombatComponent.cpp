@@ -289,6 +289,7 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 		{
 			float DistanceToCharacter = (Character->GetActorLocation() - Start).Size();
 			//Se le suma a start la distancia entre la camara y el jugador para que la linea empiece delante del player ; margen de seguridad 100.f
+			//CrosshairWorldDirection == direccion a la que apunta el crosshair
 			Start += CrosshairWorldDirection * (DistanceToCharacter + 100.f);
 		}
 
@@ -343,14 +344,9 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 		//Asi que lo gestionamos manualmente
 		if (!TraceHitResult.bBlockingHit)
 		{
-			TraceHitResult.ImpactPoint = End;
-			HitTarget = End;
-		}else
-		{
-			HitTarget = TraceHitResult.ImpactPoint;
+			TraceHitResult.ImpactPoint = Start + CrosshairWorldDirection * 2500.f; //Distancia de la bala en caso de que no apunte a nada
 		}
 	}
-
 }
 
 
@@ -407,6 +403,8 @@ void UCombatComponent::Fire()
 			CrosshairShootingFactor = EquippedWeapon->GetCrosshairShootingSpread(); //Factor que desestabiliza la mira cuando se dispara, depende del propio arma
 			CrosshairShootInterpSpeed = EquippedWeapon->GetCrosshairShootInterpSpeed(); //Velocidad con la que se reajusta el crosshair al disparar, depende del propio arma
 		
+			UE_LOG(LogTemp, Warning, TEXT("CombatComponent->Fire()->HitTarget: (%d,%d,%d)"), HitTarget.X, HitTarget.Y, HitTarget.Z);
+
 			switch (EquippedWeapon->FireType)
 			{
 			case EFireType::EFT_Projectile:
@@ -435,7 +433,10 @@ void UCombatComponent::FireProjectileWeapon()
 {
 	if (EquippedWeapon && Character)
 	{
-		HitTarget = EquippedWeapon->bUseScatter ? EquippedWeapon->TraceEndWithScatter(HitTarget) : HitTarget;
+		if (EquippedWeapon->bUseScatter)
+		{
+			HitTarget = EquippedWeapon->TraceEndWithScatter(HitTarget);
+		}
 		LocalFire(HitTarget);	//Llamamos a la maquina local para que cree lo visual mas rapido 
 		ServerFire(HitTarget);	//Llamamos al servidor para que gestione daño
 	}
@@ -554,6 +555,7 @@ void UCombatComponent::InitializeCarriedAmmo()
 */
 void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
+	UE_LOG(LogTemp, Warning, TEXT("CombatComponent->ServerFire->HitTarget: (%d, %d, %d)"), TraceHitTarget.X, TraceHitTarget.Y, TraceHitTarget.Z);
 	MulticastFire(TraceHitTarget);
 }
 
